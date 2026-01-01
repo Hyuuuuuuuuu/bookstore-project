@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', sans-serif;
+  }
+  body {
+    @apply bg-gray-50 text-gray-900;
+  }
+}
+
+@layer utilities {
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* Aspect ratio utilities */
+  .aspect-w-3 {
+    position: relative;
+    padding-bottom: 133.333333%; /* 4/3 aspect ratio */
+  }
+  
+  .aspect-h-4 {
+    position: absolute;
+    height: 100%;
+    width: 100%;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+  }
+
+  /* Book cover aspect ratio 2:3 */
+  .aspect-\[2\/3\] {
+    aspect-ratio: 2 / 3;
+  }
+
+  /* Wavy underline for section headers */
+  .wavy-underline {
+    position: relative;
+  }
+
+  .wavy-underline::after {
+    content: '';
+    position: absolute;
+    bottom: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 60px;
+    height: 3px;
+    background: linear-gradient(45deg, #ef4444, #dc2626);
+    border-radius: 2px;
+    box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3);
+  }
+}
