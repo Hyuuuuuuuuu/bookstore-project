@@ -29,11 +29,11 @@ public class ShippingProviderController {
     /**
      * Lấy tất cả đơn vị vận chuyển đang hoạt động (Public)
      * GET /api/shipping-providers
-     * Trả về chỉ các đơn vị vận chuyển đang active và chưa bị xóa
      */
     @GetMapping
     public ResponseEntity<ApiResponse<Map<String, Object>>> getAllShippingProviders() {
-        Map<String, Object> data = shippingProviderService.getActiveShippingProviders();
+        // Return all non-deleted providers (admin/public endpoint may use authorization if needed)
+        Map<String, Object> data = shippingProviderService.getAllShippingProviders();
         return ResponseEntity.ok(new ApiResponse<>(200, data, "Shipping providers retrieved successfully"));
     }
 
@@ -56,5 +56,38 @@ public class ShippingProviderController {
         ShippingProviderResponseDTO provider = shippingProviderService.getShippingProviderByCode(code);
         return ResponseEntity.ok(new ApiResponse<>(200, provider, "Shipping provider retrieved successfully"));
     }
+
+    /**
+     * Cập nhật đơn vị vận chuyển (Admin)
+     * PUT /api/shipping-providers/{id}
+     */
+    @PutMapping("/{id}")
+    public ResponseEntity<ApiResponse<ShippingProviderResponseDTO>> updateShippingProvider(
+            @PathVariable Long id,
+            @RequestBody com.hutech.bookstore.dto.ShippingProviderRequestDTO request) {
+        ShippingProviderResponseDTO updated = shippingProviderService.updateShippingProvider(id, request);
+        return ResponseEntity.ok(new ApiResponse<>(200, updated, "Shipping provider updated successfully"));
+    }
+
+    /**
+     * Xóa đơn vị vận chuyển (Admin) - soft delete
+     * DELETE /api/shipping-providers/{id}
+     */
+    @DeleteMapping("/{id}")
+    public ResponseEntity<ApiResponse<String>> deleteShippingProvider(@PathVariable Long id) {
+        shippingProviderService.deleteShippingProvider(id);
+        return ResponseEntity.ok(new ApiResponse<>(200, null, "Shipping provider deleted successfully"));
+    }
+
+    /**
+     * Tạo mới đơn vị vận chuyển (Admin)
+     * POST /api/shipping-providers
+     */
+    @PostMapping
+    public ResponseEntity<ApiResponse<ShippingProviderResponseDTO>> createShippingProvider(@RequestBody com.hutech.bookstore.dto.ShippingProviderRequestDTO request) {
+        ShippingProviderResponseDTO created = shippingProviderService.createShippingProvider(request);
+        return ResponseEntity.status(201).body(new ApiResponse<>(201, created, "Shipping provider created successfully"));
+    }
+
 }
 

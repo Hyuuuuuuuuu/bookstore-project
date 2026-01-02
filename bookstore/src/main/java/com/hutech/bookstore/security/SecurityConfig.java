@@ -3,7 +3,7 @@ package com.hutech.bookstore.security;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod; // Nhớ kiểm tra import này
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -39,18 +39,24 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/api/health").permitAll()
                 .requestMatchers("/uploads/**").permitAll()
+                // Cho phép xem sách và danh mục không cần đăng nhập (chỉ GET)
                 .requestMatchers(HttpMethod.GET, "/api/books/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/categories/**").permitAll()
+                // Cho phép xem đơn vị vận chuyển không cần đăng nhập (chỉ GET)
                 .requestMatchers(HttpMethod.GET, "/api/shipping-providers/**").permitAll()
+                // Cho phép xem voucher không cần đăng nhập (chỉ GET)
                 .requestMatchers(HttpMethod.GET, "/api/vouchers/**").permitAll()
-                .requestMatchers("/ws/**").permitAll() // Cho phép WebSocket
+                // Permit WebSocket/SockJS endpoints
+                .requestMatchers("/socket.io/**").permitAll()
+                .requestMatchers("/ws/**").permitAll()
+                // Payment methods endpoint - public
                 .requestMatchers(HttpMethod.GET, "/api/payments/methods").permitAll()
+                // Favorites, Cart, Orders, Payments, Addresses endpoints require authentication
                 .requestMatchers("/api/favorites/**").authenticated()
                 .requestMatchers("/api/cart/**").authenticated()
                 .requestMatchers("/api/orders/**").authenticated()
                 .requestMatchers("/api/payments/**").authenticated()
                 .requestMatchers("/api/addresses/**").authenticated()
-                .requestMatchers("/api/users/**").authenticated() // Thêm dòng này để bảo vệ User API
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
@@ -64,15 +70,11 @@ public class SecurityConfig {
         configuration.setAllowedOrigins(Arrays.asList(
             "http://localhost:3000",
             "http://localhost:3001",
-            "http://localhost:5173", // Frontend Vite của bạn
+            "http://localhost:5173",
             "http://localhost:8080",
             "http://localhost:4200"
         ));
-        
-        // --- SỬA DÒNG NÀY: Thêm "PATCH" vào danh sách ---
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-        // ------------------------------------------------
-        
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setAllowCredentials(true);
         
@@ -81,3 +83,4 @@ public class SecurityConfig {
         return source;
     }
 }
+

@@ -7,7 +7,8 @@ const CreateCategoryPage = () => {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
-    description: ''
+    description: '',
+    status: ''
   });
   const [errors, setErrors] = useState({});
 
@@ -124,6 +125,21 @@ const CreateCategoryPage = () => {
             <p className="mt-1 text-sm text-gray-500">
               {formData.description.length}/500 ký tự
             </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Trạng thái
+            </label>
+            <select
+              name="status"
+              value={formData.status}
+              onChange={handleInputChange}
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="active">Hoạt động</option>
+              <option value="inactive">Không hoạt động</option>
+            </select>
           </div>
 
           {errors.submit && (

@@ -49,7 +49,7 @@ yarn build
 Tạo file `.env` trong thư mục `frontend/`:
 
 ```env
-VITE_API_URL=http://localhost:5000/api/v1
+VITE_API_URL=http://localhost:5000/api
 VITE_APP_NAME=BookStore
 ```
 

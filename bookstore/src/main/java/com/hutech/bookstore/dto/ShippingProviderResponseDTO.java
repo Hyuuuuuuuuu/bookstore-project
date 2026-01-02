@@ -19,6 +19,7 @@ public class ShippingProviderResponseDTO {
     private String code;
     private Double baseFee;
     private String estimatedTime;
+    private String status;
     private Boolean active;
     private String description;
     private ContactInfoDTO contactInfo;
@@ -46,7 +47,8 @@ public class ShippingProviderResponseDTO {
         dto.setCode(provider.getCode());
         dto.setBaseFee(provider.getBaseFee());
         dto.setEstimatedTime(provider.getEstimatedTime());
-        dto.setActive(provider.getActive());
+        dto.setStatus(provider.getStatus() != null ? provider.getStatus().name() : null);
+        dto.setActive(provider.getStatus() == null ? Boolean.TRUE : (provider.getStatus() == com.hutech.bookstore.model.ShippingProvider.Status.ACTIVE));
         dto.setDescription(provider.getDescription());
         dto.setIsDeleted(provider.getIsDeleted());
         dto.setCreatedAt(provider.getCreatedAt());

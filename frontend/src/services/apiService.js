@@ -103,8 +103,9 @@ export const bookAPI = {
   // Upload image (general)
   uploadImage: (file) => {
     const formData = new FormData();
-    formData.append('image', file);
-    return axiosClient.post('/upload/image', formData, {
+    // backend expects parameter name "file"
+    formData.append('file', file);
+    return axiosClient.post('/files/upload/book-image', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
   },
@@ -267,25 +268,51 @@ export const adminAPI = {
         paymentAPI.getPayments() // Lấy tất cả payments
       ]);
 
-      console.log('📊 Dashboard API Responses:', {
-        books: booksResponse.data,
-        users: usersResponse.data,
-        orders: ordersResponse.data,
-        payments: paymentsResponse.data
-      });
+      // Normalize various possible response shapes from backend
+      const booksPayload = booksResponse?.data?.data || booksResponse?.data || {};
+      const usersPayload = usersResponse?.data?.data || usersResponse?.data || {};
+      const ordersPayload = ordersResponse?.data?.data || ordersResponse?.data || {};
+      const paymentsPayload = paymentsResponse?.data?.data || paymentsResponse?.data || {};
 
-      // Tính tổng doanh thu từ orders
-      const orders = ordersResponse.data?.data?.orders || ordersResponse.data?.orders || ordersResponse.data || [];
-      const totalRevenue = orders.reduce((sum, order) => {
-        return sum + (order.totalPrice || order.totalAmount || order.amount || 0);
-      }, 0);
+      // Extract totals with multiple fallbacks
+      const totalBooks =
+        (Array.isArray(booksPayload.books) && booksPayload.books.length) ||
+        (typeof booksPayload.total === 'number' && booksPayload.total) ||
+        (booksPayload.pagination && (booksPayload.pagination.totalBooks || booksPayload.pagination.totalItems)) ||
+        (Array.isArray(booksResponse?.data) && booksResponse.data.length) ||
+        0;
+
+      const totalUsers =
+        (Array.isArray(usersPayload.users) && usersPayload.users.length) ||
+        (typeof usersPayload.total === 'number' && usersPayload.total) ||
+        (Array.isArray(usersResponse?.data) && usersResponse.data.length) ||
+        0;
+
+      const ordersList =
+        (Array.isArray(ordersPayload.orders) && ordersPayload.orders) ||
+        (Array.isArray(ordersResponse?.data) && ordersResponse.data) ||
+        [];
+
+      const totalOrders = ordersList.length || 0;
+
+      // Total revenue: try payments payload, fallback to summing orders
+      let totalRevenue = 0;
+      if (typeof paymentsPayload.totalRevenue === 'number') {
+        totalRevenue = paymentsPayload.totalRevenue;
+      } else if (Array.isArray(paymentsPayload.payments)) {
+        totalRevenue = paymentsPayload.payments.reduce((s, p) => s + (p.amount || p.totalAmount || 0), 0);
+      } else if (ordersList.length) {
+        totalRevenue = ordersList.reduce((s, o) => s + (o.totalPrice || o.totalAmount || o.amount || 0), 0);
+      }
+
+      console.debug('📊 Parsed dashboard stats:', { totalBooks, totalUsers, totalOrders, totalRevenue });
 
       return {
         data: {
-          totalBooks: booksResponse.data?.data?.books?.length || booksResponse.data?.books?.length || booksResponse.data?.total || 0,
-          totalUsers: usersResponse.data?.data?.users?.length || usersResponse.data?.users?.length || usersResponse.data?.total || 0,
-          totalOrders: orders.length,
-          totalRevenue: totalRevenue
+          totalBooks,
+          totalUsers,
+          totalOrders,
+          totalRevenue
         }
       };
     } catch (error) {
@@ -360,12 +387,12 @@ export const paymentAPI = {
 
 // Voucher API
 export const voucherAPI = {
-  // Get all vouchers
+  // Get all vouchers for admin
   getVouchers: (params = {}) =>
-    axiosClient.get('/vouchers', { params }),
+    axiosClient.get('/vouchers/admin', { params }),
 
   // Get voucher by ID
-  getVoucherById: (id) =>
+  getVoucher: (id) =>
     axiosClient.get(`/vouchers/${id}`),
 
   // Get voucher by code

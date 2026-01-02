@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true) // Mặc định là chỉ đọc để tối ưu hiệu năng
+@Transactional(readOnly = true)
 public class CategoryService {
 
     private final CategoryRepository categoryRepository;
@@ -25,7 +25,7 @@ public class CategoryService {
     /**
      * Lấy danh sách categories với sorting
      */
-    public Map<String, Object> getCategories(String search, String sortBy, String sortOrder) {
+    public Map<String, Object> getCategories(String sortBy, String sortOrder) {
         // Tạo Sort object
         Sort sort = sortOrder != null && sortOrder.equalsIgnoreCase("desc") 
             ? Sort.by(sortBy != null ? sortBy : "name").descending() 
@@ -33,16 +33,8 @@ public class CategoryService {
         
         // Lấy tất cả categories
         List<Category> categories = categoryRepository.findAll(sort);
-
-        if (search != null && !search.trim().isEmpty()) {
-        // Nếu có từ khóa -> Gọi hàm tìm kiếm trong Repository
-        categories = categoryRepository.searchCategories(search.trim(), sort);
-        } else {
-        // Nếu KHÔNG có từ khóa -> Lấy tất cả như cũ
-        categories = categoryRepository.findAll(sort);
-        }
         
-        // Lọc các category chưa bị xóa (Soft Delete check)
+        // Lọc các category chưa bị xóa
         List<Category> activeCategories = categories.stream()
             .filter(cat -> !cat.getIsDeleted())
             .collect(Collectors.toList());
@@ -64,62 +56,66 @@ public class CategoryService {
      * Lấy category theo ID
      */
     public CategoryResponseDTO getCategoryById(Long id) {
+        Optional<Category> categoryOpt = categoryRepository.findById(id);
+        if (categoryOpt.isEmpty() || categoryOpt.get().getIsDeleted()) {
+            throw new AppException("Category not found", 404);
+        }
+        return CategoryResponseDTO.fromEntity(categoryOpt.get());
+    }
+
+    /**
+     * Tạo mới category
+     */
+    @Transactional
+    public CategoryResponseDTO createCategory(String name, String description, String status) {
+        if (name == null || name.trim().isEmpty()) {
+            throw new AppException("Category name is required", 400);
+        }
+        categoryRepository.findByNameAndIsDeletedFalse(name.trim()).ifPresent(c -> {
+            throw new AppException("Category already exists", 409);
+        });
+
+        Category category = new Category();
+        category.setName(name.trim());
+        category.setDescription(description != null ? description.trim() : null);
+        category.setStatus(status != null && !status.isBlank() ? status.trim() : "active");
+        category.setIsDeleted(false);
+        Category saved = categoryRepository.save(category);
+        return CategoryResponseDTO.fromEntity(saved);
+    }
+
+    /**
+     * Cập nhật category
+     */
+    @Transactional
+    public CategoryResponseDTO updateCategory(Long id, String name, String description, String status) {
         Category category = categoryRepository.findById(id)
                 .orElseThrow(() -> new AppException("Category not found", 404));
+        if (category.getIsDeleted()) throw new AppException("Category not found", 404);
 
-        // Kiểm tra xem đã bị xóa mềm chưa
-        if (category.getIsDeleted()) {
-             throw new AppException("Category not found (Deleted)", 404);
+        if (name != null && !name.trim().isEmpty() && !name.trim().equalsIgnoreCase(category.getName())) {
+            // check duplicate name
+            categoryRepository.findByNameAndIsDeletedFalse(name.trim()).ifPresent(other -> {
+                if (!other.getId().equals(id)) throw new AppException("Category name already in use", 409);
+            });
+            category.setName(name.trim());
         }
-
-        return CategoryResponseDTO.fromEntity(category);
-    }
-
-    // --- PHẦN BỔ SUNG CRUD ---
-
-    /**
-     * Tạo mới Category
-     */
-    @Transactional
-    public CategoryResponseDTO createCategory(CategoryResponseDTO dto) {
-        Category category = new Category();
-        category.setName(dto.getName());
-        category.setDescription(dto.getDescription()); 
-        category.setIsDeleted(false);
-    
-        Category savedCategory = categoryRepository.save(category);
-        return CategoryResponseDTO.fromEntity(savedCategory);
+        if (description != null) category.setDescription(description.trim());
+        if (status != null && !status.isBlank()) category.setStatus(status.trim());
+        Category updated = categoryRepository.save(category);
+        return CategoryResponseDTO.fromEntity(updated);
     }
 
     /**
-     * Cập nhật Category
-     */
-    @Transactional
-    public CategoryResponseDTO updateCategory(Long id, CategoryResponseDTO dto) {
-        Category existingCategory = categoryRepository.findById(id)
-            .orElseThrow(() -> new AppException("Category not found", 404));
-
-        if (existingCategory.getIsDeleted()) {
-            throw new AppException("Category has been deleted and cannot be updated", 400);
-        }
-
-        existingCategory.setName(dto.getName());
-        existingCategory.setDescription(dto.getDescription());
-        Category updatedCategory = categoryRepository.save(existingCategory);
-        return CategoryResponseDTO.fromEntity(updatedCategory);
-}
-
-    /**
-     * Xóa Category (Soft Delete)
-     * Thay vì xóa khỏi DB, ta set isDeleted = true
+     * Xóa category (soft delete)
      */
     @Transactional
     public void deleteCategory(Long id) {
-        Category existingCategory = categoryRepository.findById(id)
+        Category category = categoryRepository.findById(id)
                 .orElseThrow(() -> new AppException("Category not found", 404));
-
-        existingCategory.setIsDeleted(true); // Đánh dấu là đã xóa
-        categoryRepository.save(existingCategory);
+        if (category.getIsDeleted()) return;
+        category.setIsDeleted(true);
+        categoryRepository.save(category);
     }
 }
 

@@ -13,25 +13,17 @@ const ViewCategoryPage = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        // Get category info and books filtered by category from backend
         const [categoryResponse, booksResponse] = await Promise.all([
           categoryAPI.getCategory(id),
-          bookAPI.getBooks()
+          bookAPI.getBooks({ categoryId: id, limit: 1000 })
         ]);
-        
-        console.log('📂 Category data:', categoryResponse);
-        console.log('📚 Books data:', booksResponse);
-        
+
         const categoryData = categoryResponse?.data?.data || categoryResponse?.data;
         const booksData = booksResponse?.data?.data?.books || booksResponse?.data?.books || booksResponse?.data || [];
-        
+
         setCategory(categoryData);
-        
-        // Filter books by category
-        const categoryBooks = booksData.filter(book => 
-          book?.categoryId?._id === id || book?.categoryId === id
-        );
-        setBooks(categoryBooks);
-        
+        setBooks(booksData);
         setLoading(false);
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -158,6 +150,11 @@ const ViewCategoryPage = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700">Mô tả</label>
                 <p className="mt-1 text-sm text-gray-900">{category?.description || 'Không có mô tả'}</p>
+              </div>
+              <div>
+                <p className="mt-1 text-sm text-gray-600">
+                  {books ? books.length : 0} sách • {category?.createdAt ? formatDate(category.createdAt) : 'N/A'}
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700">Trạng thái</label>

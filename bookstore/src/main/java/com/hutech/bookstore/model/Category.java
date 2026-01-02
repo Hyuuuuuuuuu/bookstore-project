@@ -25,8 +25,12 @@ public class Category {
     @Column(length = 500)
     private String description;
 
+    @Column(length = 50)
+    private String status = "active";
+
     @Column(name = "is_deleted", nullable = false)
     private Boolean isDeleted = false;
+    
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

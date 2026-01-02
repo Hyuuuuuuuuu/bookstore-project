@@ -53,16 +53,31 @@ const ViewVouchersPage = () => {
   };
 
   const getTypeName = (type) => {
-    switch (type) {
+    const normalizedType = (type || '').toString().toLowerCase();
+    switch (normalizedType) {
       case 'percentage': return 'Phần trăm';
-      case 'fixed_amount': return 'Số tiền cố định';
+      case 'fixed_amount': return 'Tiền mặt';
       case 'free_shipping': return 'Miễn phí vận chuyển';
       default: return type;
     }
   };
 
-  const getStatusColor = (isActive) => {
-    return isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'active': return 'bg-green-100 text-green-800';
+      case 'expired': return 'bg-yellow-100 text-yellow-800';
+      case 'inactive': return 'bg-red-100 text-red-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getStatusText = (status) => {
+    switch (status) {
+      case 'active': return 'Hoạt động';
+      case 'expired': return 'Hết hạn';
+      case 'inactive': return 'Không hoạt động';
+      default: return status;
+    }
   };
 
   const isExpired = (validTo) => {
@@ -72,7 +87,14 @@ const ViewVouchersPage = () => {
   const handleStatusChange = async (newStatus) => {
     try {
       await voucherAPI.updateVoucher(id, { isActive: newStatus });
-      setVoucher(prev => ({ ...prev, isActive: newStatus }));
+
+      // Refresh voucher data from server to get updated computed status
+      const response = await voucherAPI.getVoucher(id);
+      const voucherData = response?.data?.data || response?.data;
+      if (voucherData) {
+        setVoucher(voucherData);
+      }
+
       alert('Cập nhật trạng thái thành công!');
     } catch (error) {
       console.error('Error updating voucher status:', error);
@@ -146,8 +168,8 @@ const ViewVouchersPage = () => {
             </p>
           </div>
           <div className="flex items-center space-x-4">
-            <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full ${getStatusColor(voucher.isActive)}`}>
-              {voucher.isActive ? 'Đang hoạt động' : 'Không hoạt động'}
+            <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full ${getStatusColor(voucher.status)}`}>
+              {getStatusText(voucher.status)}
             </span>
             {isExpired(voucher.validTo) && (
               <span className="inline-flex px-3 py-1 text-sm font-medium rounded-full bg-red-100 text-red-800">
@@ -200,9 +222,9 @@ const ViewVouchersPage = () => {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Giá trị</label>
                     <p className="text-lg font-semibold text-blue-600">
-                      {voucher.type === 'percentage' 
+                      {(voucher.type || '').toString().toLowerCase() === 'percentage' 
                         ? `${voucher.value}%` 
-                        : voucher.type === 'free_shipping'
+                        : (voucher.type || '').toString().toLowerCase() === 'free_shipping'
                         ? 'Miễn phí vận chuyển'
                         : formatCurrency(voucher.value)
                       }
@@ -264,8 +286,8 @@ const ViewVouchersPage = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Trạng thái hiện tại
                   </label>
-                  <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full ${getStatusColor(voucher.isActive)}`}>
-                    {voucher.isActive ? 'Đang hoạt động' : 'Không hoạt động'}
+                  <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full ${getStatusColor(voucher.status)}`}>
+                    {getStatusText(voucher.status)}
                   </span>
                 </div>
                 <div>
@@ -273,12 +295,14 @@ const ViewVouchersPage = () => {
                     Cập nhật trạng thái
                   </label>
                   <select
-                    value={voucher.isActive ? 'active' : 'inactive'}
+                    value={voucher.status}
                     onChange={(e) => handleStatusChange(e.target.value === 'active')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                    className={`w-full px-3 py-2 rounded-full ${getStatusColor(voucher.status)} focus:ring-blue-500 focus:border-blue-500`}
+                    disabled={voucher.status === 'expired'}
                   >
-                    <option value="active">Đang hoạt động</option>
+                    <option value="active">Hoạt động</option>
                     <option value="inactive">Không hoạt động</option>
+                    <option value="expired" disabled>Hết hạn</option>
                   </select>
                 </div>
               </div>
@@ -300,32 +324,6 @@ const ViewVouchersPage = () => {
                   <span className="text-sm text-gray-600">Cập nhật lần cuối:</span>
                   <p className="font-medium">{formatDate(voucher.updatedAt)}</p>
                 </div>
-                <div>
-                  <span className="text-sm text-gray-600">Người tạo:</span>
-                  <p className="font-medium">{voucher.createdBy?.name || 'N/A'}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Thao tác</h3>
-              <div className="space-y-3">
-                <Link 
-                  to={`/admin/vouchers/update/${voucher._id}`}
-                  className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors text-center block"
-                >
-                  Chỉnh sửa voucher
-                </Link>
-                <button 
-                  onClick={handleDeleteVoucher}
-                  className="w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition-colors"
-                >
-                  Xóa voucher
-                </button>
-                <button className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors">
-                  Sao chép voucher
-                </button>
               </div>
             </div>
           </div>

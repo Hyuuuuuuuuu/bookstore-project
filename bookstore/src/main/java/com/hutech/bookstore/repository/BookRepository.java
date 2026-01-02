@@ -15,21 +15,19 @@ import java.util.Optional;
 @Repository
 public interface BookRepository extends JpaRepository<Book, Long> {
     Optional<Book> findByIdAndIsDeletedFalse(Long id);
-    @Query("SELECT b FROM Book b WHERE b.isDeleted = false " +
-           "AND (:search IS NULL OR :search = '' OR " +
-           "    LOWER(b.title) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
-           "    LOWER(b.author) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
-           "    LOWER(b.isbn) LIKE LOWER(CONCAT('%', :search, '%'))) " +
-           "AND (:categoryId IS NULL OR b.category.id = :categoryId) " +
-           "AND (:minPrice IS NULL OR b.price >= :minPrice) " +
-           "AND (:maxPrice IS NULL OR b.price <= :maxPrice) " +
-           "AND (:isActive IS NULL OR b.isActive = :isActive)")
-    Page<Book> findBooksWithFilters(
-            @Param("search") String search,
-            @Param("categoryId") Long categoryId,
-            @Param("minPrice") Double minPrice,
-            @Param("maxPrice") Double maxPrice,
-            @Param("isActive") Boolean isActive,
-            Pageable pageable
-    );
+    Page<Book> findByIsDeletedFalseAndIsActiveTrue(Pageable pageable);
+    Page<Book> findByCategoryAndIsDeletedFalseAndIsActiveTrue(Category category, Pageable pageable);
+    
+    @Query("SELECT b FROM Book b WHERE b.isDeleted = false AND b.isActive = true " +
+           "AND (LOWER(b.title) LIKE LOWER(CONCAT('%', :search, '%')) " +
+           "OR LOWER(b.author) LIKE LOWER(CONCAT('%', :search, '%')) " +
+           "OR LOWER(b.description) LIKE LOWER(CONCAT('%', :search, '%')))")
+    Page<Book> searchBooks(@Param("search") String search, Pageable pageable);
+    
+    @Query("SELECT b FROM Book b WHERE b.isDeleted = false AND b.isActive = true " +
+           "AND b.price BETWEEN :minPrice AND :maxPrice")
+    Page<Book> findByPriceRange(@Param("minPrice") Double minPrice, 
+                               @Param("maxPrice") Double maxPrice, 
+                               Pageable pageable);
 }
+

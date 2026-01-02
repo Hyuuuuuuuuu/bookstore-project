@@ -9,6 +9,18 @@ const AdminOrderDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [collapsed, setCollapsed] = useState({
+    customer: true,
+    shipping: true,
+    info: true,
+    summary: true,
+    status: true,
+    actions: true
+  });
+
+  const toggleCard = (key) => {
+    setCollapsed(prev => ({ ...prev, [key]: !prev[key] }));
+  };
 
   useEffect(() => {
     const fetchOrderDetail = async () => {
@@ -16,7 +28,9 @@ const AdminOrderDetailPage = () => {
         setLoading(true);
         const response = await orderAPI.getOrder(orderId);
         console.log('📦 Admin Order detail response:', response);
-        setOrder(response?.data?.data || response?.data);
+        const payload = response?.data?.data || response?.data;
+        // If API wraps order in { order: ... } or returns directly, normalize
+        setOrder(payload?.order || payload);
         setLoading(false);
       } catch (error) {
         console.error('❌ Error fetching order detail:', error);
@@ -38,7 +52,8 @@ const AdminOrderDetailPage = () => {
   };
 
   const getStatusColor = (status) => {
-    switch (status) {
+    const s = (status || '').toLowerCase();
+    switch (s) {
       case 'pending': return 'bg-yellow-100 text-yellow-800';
       case 'confirmed': return 'bg-blue-100 text-blue-800';
       case 'shipped': return 'bg-purple-100 text-purple-800';
@@ -49,23 +64,27 @@ const AdminOrderDetailPage = () => {
   };
 
   const getStatusText = (status) => {
-    switch (status) {
+    const s = (status || '').toLowerCase();
+    switch (s) {
       case 'pending': return 'Chờ xử lý';
       case 'confirmed': return 'Đã xác nhận';
       case 'shipped': return 'Đã giao';
       case 'delivered': return 'Đã nhận';
       case 'cancelled': return 'Đã hủy';
-      default: return status;
+      default: return status || '';
     }
   };
 
   const getPaymentMethodText = (method) => {
-    switch (method) {
+    const m = (method || '').toLowerCase();
+    switch (m) {
       case 'cod': return 'Thanh toán khi nhận hàng';
       case 'credit_card': return 'Thẻ tín dụng';
       case 'bank_transfer': return 'Chuyển khoản ngân hàng';
       case 'paypal': return 'PayPal';
-      default: return method;
+      case 'vnpay': return 'VNPay';
+      case 'momo': return 'Ví MoMo';
+      default: return method || '';
     }
   };
 
@@ -125,7 +144,7 @@ const AdminOrderDetailPage = () => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="w-full px-8 py-8">
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center justify-between">
@@ -149,9 +168,9 @@ const AdminOrderDetailPage = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
         {/* Order Items */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-3">
           <div className="bg-white rounded-lg shadow-sm">
             <div className="p-6">
               <h2 className="text-xl font-semibold text-gray-900 mb-6">Sản phẩm trong đơn hàng</h2>
@@ -162,10 +181,10 @@ const AdminOrderDetailPage = () => {
                     <div key={index} className="flex items-center space-x-4 p-4 border border-gray-200 rounded-lg">
                       {/* Book Image */}
                       <div className="flex-shrink-0">
-                        {item.bookId?.imageUrl ? (
+                        {item.book?.imageUrl ? (
                           <img 
-                            src={item.bookId.imageUrl.startsWith('http') ? item.bookId.imageUrl : `http://localhost:5000${item.bookId.imageUrl}`}
-                            alt={item.bookId?.title || 'Book'}
+                            src={item.book.imageUrl.startsWith('http') ? item.book.imageUrl : `http://localhost:5000${item.book.imageUrl}`}
+                            alt={item.book?.title || 'Book'}
                             className="w-16 h-20 object-cover rounded"
                             onError={(e) => {
                               e.target.style.display = 'none';
@@ -175,7 +194,7 @@ const AdminOrderDetailPage = () => {
                             }}
                           />
                         ) : null}
-                        <div className="w-16 h-20 bg-gray-200 rounded flex items-center justify-center" style={{display: item.bookId?.imageUrl ? 'none' : 'flex'}}>
+                        <div className="w-16 h-20 bg-gray-200 rounded flex items-center justify-center" style={{display: item.book?.imageUrl ? 'none' : 'flex'}}>
                           <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                           </svg>
@@ -185,14 +204,14 @@ const AdminOrderDetailPage = () => {
                       {/* Book Info */}
                       <div className="flex-1 min-w-0">
                         <h3 className="text-lg font-medium text-gray-900 truncate">
-                          {item.bookId?.title || 'Sách không xác định'}
+                          {item.book?.title || 'Sách không xác định'}
                         </h3>
-                        <p className="text-sm text-gray-600">{item.bookId?.author || 'Tác giả không xác định'}</p>
+                        <p className="text-sm text-gray-600">{item.book?.author || 'Tác giả không xác định'}</p>
                         <p className="text-sm text-gray-500">
                           Số lượng: {item.quantity} • Giá: {formatCurrency(item.priceAtPurchase)}
                         </p>
-                        {item.bookId?.isbn && (
-                          <p className="text-xs text-gray-400">ISBN: {item.bookId.isbn}</p>
+                        {item.book?.isbn && (
+                          <p className="text-xs text-gray-400">ISBN: {item.book.isbn}</p>
                         )}
                       </div>
                       
@@ -219,175 +238,155 @@ const AdminOrderDetailPage = () => {
           <div className="space-y-6">
             {/* Customer Info */}
             <div className="bg-white rounded-lg shadow-sm p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Thông tin khách hàng</h3>
-              <div className="space-y-3">
-                <div>
-                  <span className="text-sm text-gray-600">Tên khách hàng:</span>
-                  <p className="font-medium">{order.userId?.name || 'N/A'}</p>
-                </div>
-                <div>
-                  <span className="text-sm text-gray-600">Email:</span>
-                  <p className="font-medium">{order.userId?.email || 'N/A'}</p>
-                </div>
-                <div>
-                  <span className="text-sm text-gray-600">Số điện thoại:</span>
-                  <p className="font-medium">{order.userId?.phone || order.shippingAddress?.phone || 'N/A'}</p>
-                </div>
-                <div>
-                  <span className="text-sm text-gray-600">Địa chỉ:</span>
-                  <p className="font-medium">{order.userId?.address || 'N/A'}</p>
-                </div>
-                <div>
-                  <span className="text-sm text-gray-600">Trạng thái tài khoản:</span>
-                  <p className="font-medium">
-                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                      order.userId?.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                    }`}>
-                      {order.userId?.status === 'active' ? 'Hoạt động' : 'Không hoạt động'}
-                    </span>
-                  </p>
-                </div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Thông tin khách hàng</h3>
+                <button onClick={() => toggleCard('customer')} className="text-gray-400 hover:text-gray-600" aria-label="Toggle customer info">
+                  <svg className={`w-5 h-5 transform ${!collapsed.customer ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z" clipRule="evenodd" />
+                  </svg>
+                </button>
               </div>
+              {!collapsed.customer && (
+                <div className="space-y-3">
+                  <div>
+                    <span className="text-sm text-gray-600">Tên khách hàng:</span>
+                    <p className="font-medium">{order.userName || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <span className="text-sm text-gray-600">Email:</span>
+                    <p className="font-medium">{order.userEmail || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <span className="text-sm text-gray-600">Số điện thoại:</span>
+                    <p className="font-medium">{order.userPhone || order.shippingAddress?.phone || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <span className="text-sm text-gray-600">Địa chỉ:</span>
+                    <p className="font-medium">{order.userAddress || order.shippingAddress?.address || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <span className="text-sm text-gray-600">Trạng thái tài khoản:</span>
+                    <p className="font-medium">
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${ (order.userStatus || '').toLowerCase() === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800' }`}>
+                        {(order.userStatus || '').toLowerCase() === 'active' ? 'Hoạt động' : 'Không hoạt động'}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Shipping Address */}
             {order.shippingAddress && (
               <div className="bg-white rounded-lg shadow-sm p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Địa chỉ giao hàng</h3>
-                <div className="space-y-2">
-                  <p className="font-medium">{order.shippingAddress.name}</p>
-                  <p className="text-gray-600">{order.shippingAddress.phone}</p>
-                  <p className="text-gray-600">{order.shippingAddress.address}</p>
-                  <p className="text-gray-600">
-                    {order.shippingAddress.ward}, {order.shippingAddress.district}, {order.shippingAddress.city}
-                  </p>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Địa chỉ giao hàng</h3>
+                  <button onClick={() => toggleCard('shipping')} className="text-gray-400 hover:text-gray-600" aria-label="Toggle shipping">
+                    <svg className={`w-5 h-5 transform ${!collapsed.shipping ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z" clipRule="evenodd" />
+                    </svg>
+                  </button>
                 </div>
+                {!collapsed.shipping && (
+                  <div className="space-y-2">
+                    <p className="font-medium">{order.shippingAddress.name}</p>
+                    <p className="text-gray-600">{order.shippingAddress.phone}</p>
+                    <p className="text-gray-600">{order.shippingAddress.address}</p>
+                    <p className="text-gray-600">
+                      {order.shippingAddress.ward}, {order.shippingAddress.district}, {order.shippingAddress.city}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
             {/* Order Info */}
             <div className="bg-white rounded-lg shadow-sm p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Thông tin đơn hàng</h3>
-              <div className="space-y-3">
-                <div>
-                  <span className="text-sm text-gray-600">Mã đơn hàng:</span>
-                  <p className="font-medium">{order.orderCode || order._id}</p>
-                </div>
-                <div>
-                  <span className="text-sm text-gray-600">Ngày đặt:</span>
-                  <p className="font-medium">
-                    {order.createdAt ? new Date(order.createdAt).toLocaleDateString('vi-VN', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    }) : 'N/A'}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-sm text-gray-600">Cập nhật lần cuối:</span>
-                  <p className="font-medium">
-                    {order.updatedAt ? new Date(order.updatedAt).toLocaleDateString('vi-VN', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    }) : 'N/A'}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-sm text-gray-600">Phương thức thanh toán:</span>
-                  <p className="font-medium">{getPaymentMethodText(order.paymentMethod)}</p>
-                </div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Thông tin đơn hàng</h3>
+                <button onClick={() => toggleCard('info')} className="text-gray-400 hover:text-gray-600" aria-label="Toggle order info">
+                  <svg className={`w-5 h-5 transform ${!collapsed.info ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z" clipRule="evenodd" />
+                  </svg>
+                </button>
               </div>
+              {!collapsed.info && (
+                <div className="space-y-3">
+                  <div>
+                    <span className="text-sm text-gray-600">Mã đơn hàng:</span>
+                    <p className="font-medium">{order.orderCode || order._id}</p>
+                  </div>
+                  <div>
+                    <span className="text-sm text-gray-600">Ngày đặt:</span>
+                    <p className="font-medium">
+                      {order.createdAt ? new Date(order.createdAt).toLocaleDateString('vi-VN', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      }) : 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-sm text-gray-600">Cập nhật lần cuối:</span>
+                    <p className="font-medium">
+                      {order.updatedAt ? new Date(order.updatedAt).toLocaleDateString('vi-VN', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      }) : 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-sm text-gray-600">Phương thức thanh toán:</span>
+                    <p className="font-medium">{getPaymentMethodText(order.paymentMethod)}</p>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Order Summary */}
             <div className="bg-white rounded-lg shadow-sm p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Tóm tắt đơn hàng</h3>
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Tạm tính:</span>
-                  <span className="font-medium">{formatCurrency(order.totalPrice)}</span>
-                </div>
-                {order.discountAmount > 0 && (
-                  <div className="flex justify-between text-green-600">
-                    <span>Giảm giá:</span>
-                    <span className="font-medium">-{formatCurrency(order.discountAmount)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Phí vận chuyển:</span>
-                  <span className="font-medium">Miễn phí</span>
-                </div>
-                <div className="border-t pt-3">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Tóm tắt đơn hàng</h3>
+                <button onClick={() => toggleCard('summary')} className="text-gray-400 hover:text-gray-600" aria-label="Toggle summary">
+                  <svg className={`w-5 h-5 transform ${!collapsed.summary ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+              {!collapsed.summary && (
+                <div className="space-y-3">
                   <div className="flex justify-between">
-                    <span className="text-lg font-semibold">Tổng cộng:</span>
-                    <span className="text-lg font-semibold text-blue-600">
-                      {formatCurrency(order.totalPrice - (order.discountAmount || 0))}
-                    </span>
+                    <span className="text-gray-600">Tạm tính:</span>
+                    <span className="font-medium">{formatCurrency(order.totalPrice)}</span>
+                  </div>
+                  {order.discountAmount > 0 && (
+                    <div className="flex justify-between text-green-600">
+                      <span>Giảm giá:</span>
+                      <span className="font-medium">-{formatCurrency(order.discountAmount)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Phí vận chuyển:</span>
+                    <span className="font-medium">Miễn phí</span>
+                  </div>
+                  <div className="border-t pt-3">
+                    <div className="flex justify-between">
+                      <span className="text-lg font-semibold">Tổng cộng:</span>
+                      <span className="text-lg font-semibold text-blue-600">
+                        {formatCurrency(order.totalPrice - (order.discountAmount || 0))}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
 
-            {/* Status Management */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Quản lý trạng thái</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Trạng thái hiện tại
-                  </label>
-                  <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full ${getStatusColor(order.status)}`}>
-                    {getStatusText(order.status)}
-                  </span>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Cập nhật trạng thái
-                  </label>
-                  <select
-                    value={order.status}
-                    onChange={(e) => handleStatusChange(e.target.value)}
-                    disabled={updatingStatus}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50"
-                  >
-                    <option value="pending">Chờ xử lý</option>
-                    <option value="confirmed">Đã xác nhận</option>
-                    <option value="shipped">Đã giao</option>
-                    <option value="delivered">Đã nhận</option>
-                    <option value="cancelled">Đã hủy</option>
-                  </select>
-                </div>
-                {updatingStatus && (
-                  <p className="text-sm text-blue-600">Đang cập nhật...</p>
-                )}
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Thao tác</h3>
-              <div className="space-y-3">
-                <button className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors">
-                  Gửi email thông báo
-                </button>
-                <button className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors">
-                  In hóa đơn
-                </button>
-                <button className="w-full bg-yellow-600 text-white py-2 rounded-lg hover:bg-yellow-700 transition-colors">
-                  Xuất Excel
-                </button>
-                {order.status === 'pending' && (
-                  <button className="w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition-colors">
-                    Hủy đơn hàng
-                  </button>
-                )}
-              </div>
-            </div>
+            {/* Removed Status Management and Actions per request */}
           </div>
         </div>
       </div>

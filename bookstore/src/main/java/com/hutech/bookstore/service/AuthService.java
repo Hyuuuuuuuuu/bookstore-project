@@ -27,6 +27,7 @@ public class AuthService {
     private final EmailVerificationRepository emailVerificationRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final EmailService emailService;
 
     @Transactional
     public User register(RegisterRequest request) {
@@ -93,10 +94,11 @@ public class AuthService {
         EmailVerification verification = new EmailVerification();
         verification.setEmail(email.toLowerCase());
         verification.setCode(code);
-        verification.setExpiresAt(LocalDateTime.now().plusMinutes(10));
+        verification.setExpiresAt(LocalDateTime.now().plusMinutes(15));
         emailVerificationRepository.save(verification);
 
-        // TODO: Send email with verification code
+        // Send email with verification code
+        emailService.sendEmailVerificationCode(email, code, name);
     }
 
     @Transactional
@@ -141,7 +143,17 @@ public class AuthService {
         user.setRole(userRole);
         user.setIsEmailVerified(true);
 
-        return userRepository.save(user);
+        User savedUser = userRepository.save(user);
+
+        // Send welcome email
+        try {
+            emailService.sendWelcomeEmail(savedUser.getEmail(), savedUser.getName());
+        } catch (Exception e) {
+            // Log error but don't fail registration if email fails
+            System.err.println("Failed to send welcome email to " + savedUser.getEmail() + ": " + e.getMessage());
+        }
+
+        return savedUser;
     }
 
     @Transactional
@@ -160,7 +172,8 @@ public class AuthService {
         verification.setExpiresAt(LocalDateTime.now().plusMinutes(10));
         emailVerificationRepository.save(verification);
 
-        // TODO: Send email with OTP code
+        // Send email with OTP code
+        emailService.sendPasswordResetOTP(email, code, user.getName());
     }
 
     @Transactional

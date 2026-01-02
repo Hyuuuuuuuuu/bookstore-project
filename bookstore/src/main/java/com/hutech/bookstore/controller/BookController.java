@@ -40,25 +40,25 @@ public class BookController {
         BookResponseDTO bookDTO = bookService.getBookById(id);
         return ResponseEntity.ok(new ApiResponse<>(200, bookDTO, "Book retrieved successfully"));
     }
-    @PostMapping
-    public ResponseEntity<ApiResponse<BookResponseDTO>> createBook(@RequestBody BookResponseDTO bookDTO) {
-        // GỌI SERVICE THẬT
-        BookResponseDTO newBook = bookService.createBook(bookDTO); 
-        return ResponseEntity.ok(new ApiResponse<>(201, newBook, "Sách đã được tạo thành công"));
-    }
 
+    /**
+     * Cập nhật sách (Admin)
+     * PUT /api/books/{id}
+     */
     @PutMapping("/{id}")
-    public ResponseEntity<ApiResponse<BookResponseDTO>> updateBook(@PathVariable Long id, @RequestBody BookResponseDTO bookDTO) {
-        // GỌI SERVICE THẬT
-        BookResponseDTO updatedBook = bookService.updateBook(id, bookDTO);
-        return ResponseEntity.ok(new ApiResponse<>(200, updatedBook, "Sách đã cập nhật thành công"));
+    public ResponseEntity<ApiResponse<BookResponseDTO>> updateBook(@PathVariable Long id, @RequestBody Map<String, Object> payload) {
+        BookResponseDTO updated = bookService.updateBook(id, payload);
+        return ResponseEntity.ok(ApiResponse.success(updated, "Book updated successfully"));
     }
 
-    @DeleteMapping("/{id}")
-    public ResponseEntity<ApiResponse<Void>> deleteBook(@PathVariable Long id) {
-        // GỌI SERVICE THẬT
-        bookService.deleteBook(id);
-        return ResponseEntity.ok(new ApiResponse<>(200, null, "Sách đã được xóa thành công"));
+    /**
+     * Tạo sách mới (Admin)
+     * POST /api/books
+     */
+    @PostMapping
+    public ResponseEntity<ApiResponse<BookResponseDTO>> createBook(@RequestBody Map<String, Object> payload) {
+        BookResponseDTO created = bookService.createBook(payload);
+        return ResponseEntity.status(201).body(ApiResponse.created(created, "Book created successfully"));
     }
 }
 

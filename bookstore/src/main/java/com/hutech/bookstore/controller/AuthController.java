@@ -5,7 +5,9 @@ import com.hutech.bookstore.model.User;
 import com.hutech.bookstore.repository.UserRepository;
 import com.hutech.bookstore.security.JwtAuthenticationFilter;
 import com.hutech.bookstore.service.AuthService;
+import com.hutech.bookstore.service.FileUploadService;
 import com.hutech.bookstore.util.ApiResponse;
+import com.hutech.bookstore.exception.AppException;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -31,6 +33,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final UserRepository userRepository;
+    private final FileUploadService fileUploadService;
 
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<Map<String, Object>>> register(@Valid @RequestBody RegisterRequest request) {
@@ -85,7 +88,9 @@ public class AuthController {
         userData.put("phone", user.getPhone());
         userData.put("address", user.getAddress());
         userData.put("isEmailVerified", user.getIsEmailVerified());
-        userData.put("status", user.getStatus());
+        // Normalize status to two values: active or locked
+        String normalizedStatus = (user.getStatus() != null && "ACTIVE".equalsIgnoreCase(user.getStatus().name())) ? "active" : "locked";
+        userData.put("status", normalizedStatus);
         userData.put("isActive", user.getIsActive());
 
         return ResponseEntity
@@ -95,12 +100,23 @@ public class AuthController {
     @PostMapping("/send-verification-code")
     public ResponseEntity<ApiResponse<Map<String, Object>>> sendVerificationCode(
             @Valid @RequestBody SendVerificationCodeRequest request) {
-        authService.sendVerificationCode(request.getEmail(), request.getName());
+        try {
+            authService.sendVerificationCode(request.getEmail(), request.getName());
 
-        Map<String, Object> data = new HashMap<>();
-        data.put("message", "Verification code sent to your email");
+            Map<String, Object> data = new HashMap<>();
+            data.put("message", "Verification code sent to your email");
 
-        return ResponseEntity.ok(new ApiResponse<>(200, data, "Verification code sent successfully"));
+            return ResponseEntity.ok(new ApiResponse<>(200, data, "Verification code sent successfully"));
+        } catch (AppException ex) {
+            // If the email is already verified, return 200 with a clear message instead of 400
+            if ("Email already verified".equalsIgnoreCase(ex.getMessage())) {
+                Map<String, Object> data = new HashMap<>();
+                data.put("message", "Email already verified");
+                return ResponseEntity.ok(new ApiResponse<>(200, data, "Email already verified"));
+            }
+            // Re-throw other application exceptions to be handled globally
+            throw ex;
+        }
     }
 
     @PostMapping("/verify-email")
@@ -195,60 +211,21 @@ public class AuthController {
         User user = (User) authentication.getPrincipal();
 
         try {
-            // Validate file
+            // Basic validation: non-empty
             if (file.isEmpty()) {
                 return ResponseEntity.badRequest()
                         .body(new ApiResponse<>(400, null, "Please select a file to upload"));
             }
 
-            // Check file type (only images)
-            String contentType = file.getContentType();
-            if (contentType == null || !contentType.startsWith("image/")) {
-                return ResponseEntity.badRequest()
-                        .body(new ApiResponse<>(400, null, "Only image files are allowed"));
-            }
-
-            // Check file size (max 5MB)
-            if (file.getSize() > 5 * 1024 * 1024) {
-                return ResponseEntity.badRequest()
-                        .body(new ApiResponse<>(400, null, "File size must be less than 5MB"));
-            }
-
-            // Generate unique filename
-            String originalFilename = file.getOriginalFilename();
-            String extension = originalFilename != null ? originalFilename.substring(originalFilename.lastIndexOf("."))
-                    : ".jpg";
-            String filename = "avatar_" + user.getId() + "_" + System.currentTimeMillis() + extension;
-
-            // Create uploads directory if it doesn't exist - use classpath resource
-            try {
-                // Get the resource directory path
-                String resourcePath = getClass().getClassLoader().getResource("").getPath();
-                String uploadPath = resourcePath + "static/uploads/avatars";
-                java.io.File uploadsDir = new java.io.File(uploadPath);
-                if (!uploadsDir.exists()) {
-                    uploadsDir.mkdirs();
-                }
-
-                // Save file to uploads directory
-                String filePath = uploadPath + "/" + filename;
-                file.transferTo(new java.io.File(filePath));
-                System.out.println("File saved to: " + filePath);
-                System.out.println("Upload directory: " + uploadPath);
-            } catch (Exception e) {
-                System.err.println("Failed to save file: " + e.getMessage());
-                e.printStackTrace();
-                throw new RuntimeException("Failed to save avatar file", e);
-            }
-
-            // Create avatar URL
-            String avatarUrl = "/uploads/avatars/" + filename;
+            // Delegate file saving to FileUploadService which handles type/size validation and directory setup
+            String filePath = fileUploadService.uploadAvatar(file); // returns e.g. "avatars/uuid.jpg"
+            String avatarUrl = fileUploadService.getFileUrl(filePath); // returns e.g. "/uploads/avatars/uuid.jpg"
 
             // Update user avatar
             user.setAvatar(avatarUrl);
             userRepository.save(user);
 
-            // Return updated user data
+            // Prepare response
             Map<String, Object> userData = new HashMap<>();
             userData.put("id", user.getId());
             userData.put("name", user.getName());
@@ -268,6 +245,9 @@ public class AuthController {
 
             return ResponseEntity.ok(new ApiResponse<>(200, data, "Avatar uploaded successfully"));
 
+        } catch (IllegalArgumentException e) {
+            // FileUploadService may throw IllegalArgumentException for validation errors
+            return ResponseEntity.badRequest().body(new ApiResponse<>(400, null, e.getMessage()));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(new ApiResponse<>(500, null, "Failed to upload avatar: " + e.getMessage()));

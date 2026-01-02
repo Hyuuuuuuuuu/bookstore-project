@@ -1,13 +1,17 @@
 package com.hutech.bookstore.controller;
 
-import com.hutech.bookstore.dto.VoucherDTO;
+import com.hutech.bookstore.dto.VoucherResponseDTO;
+import com.hutech.bookstore.model.User;
 import com.hutech.bookstore.service.VoucherService;
 import com.hutech.bookstore.util.ApiResponse;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -18,61 +22,143 @@ public class VoucherController {
     private final VoucherService voucherService;
 
     /**
-     * 1. Lấy danh sách Voucher (Hỗ trợ Tìm kiếm & Bộ lọc)
-     * URL: GET /api/vouchers?page=1&limit=10&search=CODE&status=true&type=PERCENTAGE
+     * Lấy danh sách voucher có thể áp dụng cho đơn hàng
+     * GET /api/vouchers/available
+     * Query Parameters:
+     *   - orderAmount: Tổng tiền đơn hàng (optional)
+     *   - categoryIds: Danh sách category IDs, phân cách bằng dấu phẩy (optional)
+     *   - bookIds: Danh sách book IDs, phân cách bằng dấu phẩy (optional)
+     * Yêu cầu: JWT Token (để lấy userId và kiểm tra đã dùng voucher chưa)
      */
-    @GetMapping
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getAllVouchers(
-            @RequestParam(defaultValue = "1") Integer page,
-            @RequestParam(defaultValue = "10") Integer limit,
-            @RequestParam(required = false) String search,
-            @RequestParam(required = false, defaultValue = "all") String status,
-            @RequestParam(required = false, defaultValue = "all") String type
-    ) {
-        Map<String, Object> data = voucherService.getAllVouchers(page, limit, search, status, type);
+    @GetMapping("/available")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getAvailableVouchers(
+            @RequestParam(required = false) Double orderAmount,
+            @RequestParam(required = false) String categoryIds,
+            @RequestParam(required = false) String bookIds) {
+        
+        // Parse categoryIds từ string sang List<Long>
+        List<Long> categoryIdList = null;
+        if (categoryIds != null && !categoryIds.trim().isEmpty()) {
+            try {
+                categoryIdList = new ArrayList<>();
+                String[] ids = categoryIds.split(",");
+                for (String id : ids) {
+                    categoryIdList.add(Long.parseLong(id.trim()));
+                }
+            } catch (NumberFormatException e) {
+                // Ignore invalid IDs
+            }
+        }
+        
+        // Parse bookIds từ string sang List<Long>
+        List<Long> bookIdList = null;
+        if (bookIds != null && !bookIds.trim().isEmpty()) {
+            try {
+                bookIdList = new ArrayList<>();
+                String[] ids = bookIds.split(",");
+                for (String id : ids) {
+                    bookIdList.add(Long.parseLong(id.trim()));
+                }
+            } catch (NumberFormatException e) {
+                // Ignore invalid IDs
+            }
+        }
+        
+        // Lấy userId từ authentication (nếu có)
+        Long userId = null;
+        try {
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            if (authentication != null && authentication.getPrincipal() instanceof User) {
+                User user = (User) authentication.getPrincipal();
+                userId = user.getId();
+            }
+        } catch (Exception e) {
+            // Nếu không có authentication, userId = null (vẫn có thể lấy voucher public)
+        }
+        
+        Map<String, Object> data = voucherService.getAvailableVouchers(
+            orderAmount, categoryIdList, bookIdList, userId
+        );
+        
+        return ResponseEntity.ok(new ApiResponse<>(200, data, "Available vouchers retrieved successfully"));
+    }
+
+    @GetMapping("/admin")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getAllVouchersForAdmin(
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) String search) {
+        Map<String, Object> data = voucherService.getAllVouchersForAdmin(status, type, search);
         return ResponseEntity.ok(new ApiResponse<>(200, data, "Vouchers retrieved successfully"));
     }
 
     /**
-     * 2. Lấy chi tiết 1 Voucher theo ID (Dùng khi bấm nút "Sửa")
-     * URL: GET /api/vouchers/{id}
+     * Lấy tất cả voucher (active và chưa bị xóa, không filter theo thời gian)
+     * GET /api/vouchers
+     * Query Parameters:
+     *   - validOnly: true để chỉ lấy voucher còn hợp lệ (validFrom <= now AND validTo >= now), false để lấy tất cả (default: false)
+     * Public endpoint
+     */
+    @GetMapping
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getAllVouchers(
+            @RequestParam(required = false, defaultValue = "false") Boolean validOnly) {
+        Map<String, Object> data;
+        if (Boolean.TRUE.equals(validOnly)) {
+            data = voucherService.getAllValidVouchers();
+        } else {
+            data = voucherService.getAllVouchers();
+        }
+        return ResponseEntity.ok(new ApiResponse<>(200, data, "Vouchers retrieved successfully"));
+    }
+
+    /**
+     * Lấy voucher theo ID (Admin)
+     * GET /api/vouchers/:id
      */
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<VoucherDTO>> getVoucherById(@PathVariable Long id) {
-        VoucherDTO voucher = voucherService.getVoucherById(id);
-        return ResponseEntity.ok(new ApiResponse<>(200, voucher, "Voucher detail retrieved"));
+    public ResponseEntity<ApiResponse<VoucherResponseDTO>> getVoucher(@PathVariable Long id) {
+        VoucherResponseDTO voucher = voucherService.getVoucherById(id);
+        return ResponseEntity.ok(new ApiResponse<>(200, voucher, "Voucher retrieved successfully"));
     }
 
     /**
-     * 3. Tạo Voucher mới
-     * URL: POST /api/vouchers
+     * Lấy voucher theo code
+     * GET /api/vouchers/code/:code
+     * Public endpoint
      */
-    @PostMapping
-    public ResponseEntity<ApiResponse<VoucherDTO>> createVoucher(@RequestBody VoucherDTO voucherDTO) {
-        VoucherDTO createdVoucher = voucherService.createVoucher(voucherDTO);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(new ApiResponse<>(201, createdVoucher, "Voucher created successfully"));
+    @GetMapping("/code/{code}")
+    public ResponseEntity<ApiResponse<VoucherResponseDTO>> getVoucherByCode(@PathVariable String code) {
+        VoucherResponseDTO voucher = voucherService.getVoucherByCode(code);
+        return ResponseEntity.ok(new ApiResponse<>(200, voucher, "Voucher retrieved successfully"));
     }
 
     /**
-     * 4. Cập nhật Voucher
-     * URL: PUT /api/vouchers/{id}
+     * Cập nhật voucher (Admin)
+     * PUT /api/vouchers/{id}
      */
     @PutMapping("/{id}")
-    public ResponseEntity<ApiResponse<VoucherDTO>> updateVoucher(
-            @PathVariable Long id,
-            @RequestBody VoucherDTO voucherDTO) {
-        VoucherDTO updatedVoucher = voucherService.updateVoucher(id, voucherDTO);
-        return ResponseEntity.ok(new ApiResponse<>(200, updatedVoucher, "Voucher updated successfully"));
+    public ResponseEntity<ApiResponse<VoucherResponseDTO>> updateVoucher(@PathVariable Long id, @RequestBody Map<String, Object> payload) {
+        VoucherResponseDTO updated = voucherService.updateVoucher(id, payload);
+        return ResponseEntity.ok(new ApiResponse<>(200, updated, "Voucher updated successfully"));
     }
 
     /**
-     * 5. Xóa Voucher
-     * URL: DELETE /api/vouchers/{id}
+     * Tạo voucher mới (Admin)
+     * POST /api/vouchers
      */
-    @DeleteMapping("/{id}")
-    public ResponseEntity<ApiResponse<Void>> deleteVoucher(@PathVariable Long id) {
-        voucherService.deleteVoucher(id);
-        return ResponseEntity.ok(new ApiResponse<>(200, null, "Voucher deleted successfully"));
+    @PostMapping
+    public ResponseEntity<ApiResponse<VoucherResponseDTO>> createVoucher(@RequestBody Map<String, Object> payload) {
+        // Attach authenticated user id as createdBy if available
+        try {
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            if (authentication != null && authentication.getPrincipal() instanceof User) {
+                User user = (User) authentication.getPrincipal();
+                payload.put("createdById", user.getId());
+            }
+        } catch (Exception ignored) {}
+
+        VoucherResponseDTO created = voucherService.createVoucher(payload);
+        return ResponseEntity.status(201).body(new ApiResponse<>(201, created, "Voucher created successfully"));
     }
 }
+

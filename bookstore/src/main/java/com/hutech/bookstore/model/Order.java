@@ -99,7 +99,7 @@ public class Order {
     }
 
     public enum OrderStatus {
-        PENDING, CONFIRMED, SHIPPED, DELIVERED, CANCELLED, DIGITAL_DELIVERED
+        PENDING, CONFIRMED, SHIPPED, DELIVERED, CANCELLED
     }
 
     public enum PaymentStatus {

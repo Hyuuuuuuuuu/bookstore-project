@@ -1,17 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { io } from 'socket.io-client';
 import { useAuth } from '../contexts/AuthContext';
-import { chatAPI } from '../services/apiService';
+import useChat from '../hook/useChat';
 
 const ChatWidget = () => {
   const { user, token } = useAuth();
+  const {
+    isConnected,
+    messages,
+    sendToAdmin,
+    loadMessages,
+    clearMessages
+  } = useChat();
+
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
-  const [socket, setSocket] = useState(null);
   const [conversationId, setConversationId] = useState(null);
-  const [supportUser, setSupportUser] = useState(null); // Staff hoặc Admin
+  const [supportUser, setSupportUser] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
   const [typingUsers, setTypingUsers] = useState([]);
   const [error, setError] = useState(null);
@@ -29,247 +34,61 @@ const ChatWidget = () => {
     scrollToBottom();
   }, [messages]);
 
-  // Initialize socket connection
+  // Load messages when chat opens
   useEffect(() => {
-    if (!token) {
-      return;
+    if (isOpen && user) {
+      loadInitialMessages();
     }
+  }, [isOpen, user]);
 
-    const newSocket = io('http://localhost:5000', {
-      auth: {
-        token: token
-      }
-    });
-
-    newSocket.on('connect', () => {
-      setSocket(newSocket);
-    });
-
-    newSocket.on('disconnect', () => {
-      // Handle disconnect
-    });
-
-    newSocket.on('connect_error', (error) => {
-      console.error('❌ ChatWidget: Connection error:', error);
-      setError('Không thể kết nối đến server chat');
-    });
-
-    return () => {
-      newSocket.close();
-    };
-  }, [token]);
-
-  // Get or create conversation
-  useEffect(() => {
-    const getConversation = async () => {
-      if (!user) return;
-      
-      try {
-        setLoading(true);
-        const response = await chatAPI.getOrCreateConversation();
-        const { conversationId, adminUser, staffUser } = response.data.data;
-        setConversationId(conversationId);
-        setSupportUser(staffUser || adminUser); // Ưu tiên staff, fallback admin
-        
-        // Load messages
-        await loadMessages(conversationId);
-      } catch (error) {
-        console.error('❌ ChatWidget: Error getting conversation:', error);
-        setError('Không thể tải cuộc trò chuyện');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (user && isOpen) {
-      getConversation();
-    }
-  }, [user, isOpen]);
-
-  // Join conversation when socket is ready
-  useEffect(() => {
-    if (socket && conversationId) {
-      socket.emit('join_conversation', conversationId);
-    }
-  }, [socket, conversationId]);
-
-  // Socket event listeners
-  useEffect(() => {
-    if (!socket) return;
-
-    const handleNewMessage = (data) => {
-      // Check if message belongs to current conversation
-      // So sánh chính xác conversationId
-      if (data.conversationId && conversationId && data.conversationId !== conversationId) {
-        return;
-      }
-      
-      // Nếu không có conversationId hoặc conversationId trùng khớp, tiếp tục xử lý
-      
-      const isTempMessage = data.message?.messageId?.startsWith('temp_');
-      if (isTempMessage) {
-        return;
-      }
-      
-      setMessages(prev => {
-        // FIX: Đơn giản hóa - loại bỏ phân biệt role, chỉ dùng userId
-        // Tìm temp message để thay thế
-        const tempMessageIndex = prev.findIndex(msg => 
-          msg.messageId?.startsWith('temp_') && 
-          msg.text === data.message.text &&
-          msg.fromUser?.userId === data.message.fromUser?.userId
-        );
-        if (tempMessageIndex !== -1) {
-          const newMessages = [...prev];
-          newMessages[tempMessageIndex] = data.message;
-          return newMessages;
-        }
-        // Kiểm tra duplicate bằng messageId
-        const exists = prev.some(msg => msg.messageId === data.message.messageId);
-        if (exists) {
-          return prev;
-        }
-        return [...prev, data.message];
-      });
-      scrollToBottom();
-    };
-
-    const handleUserTyping = (data) => {
-      if (data.userId !== user._id) {
-        setTypingUsers(prev => {
-          const filtered = prev.filter(u => u.userId !== data.userId);
-          if (data.isTyping) {
-            return [...filtered, { userId: data.userId, userName: data.userName }];
-          }
-          return filtered;
-        });
-      }
-    };
-
-    const handleUserJoined = (data) => {
-      // Handle user joined
-    };
-
-    const handleUserLeft = (data) => {
-      // Handle user left
-    };
-
-    socket.on('new_message', handleNewMessage);
-    socket.on('user_typing_conversation', handleUserTyping);
-    socket.on('user_joined_conversation', handleUserJoined);
-    socket.on('user_left_conversation', handleUserLeft);
-
-    return () => {
-      socket.off('new_message', handleNewMessage);
-      socket.off('user_typing_conversation', handleUserTyping);
-      socket.off('user_joined_conversation', handleUserJoined);
-      socket.off('user_left_conversation', handleUserLeft);
-    };
-  }, [socket, conversationId, user]);
-
-  // Load messages
-  const loadMessages = async (convId) => {
+  // Load initial messages
+  const loadInitialMessages = async () => {
     try {
-      const response = await chatAPI.getUserConversationMessages(convId, 1, 1000);
-      setMessages(response.data.data.messages || []);
+      setLoading(true);
+      await loadMessages(0, 50); // Load last 50 messages
     } catch (error) {
-      console.error('❌ ChatWidget: Error loading messages:', error);
+      console.error('Failed to load messages:', error);
+      setError('Không thể tải tin nhắn');
+    } finally {
+      setLoading(false);
     }
   };
 
   // Send message
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!newMessage.trim() || !socket || !conversationId) return;
+    if (!newMessage.trim()) return;
 
     try {
-      // FIX: Đơn giản hóa - loại bỏ phân biệt role, chỉ dùng userId
-      // Add message to UI immediately (Optimistic UI)
-      const tempMessage = {
-        messageId: `temp_${Date.now()}`,
-        text: newMessage.trim(),
-        timestamp: new Date(),
-        isRead: false,
-        messageType: 'text',
-        imageUrl: null,
-        fromUser: {
-          userId: user._id,
-          name: user.name,
-          email: user.email,
-          avatar: user.avatar
-        },
-        toUser: supportUser ? {
-          userId: supportUser.userId,
-          name: supportUser.name,
-          email: supportUser.email,
-          avatar: supportUser.avatar
-        } : null
-      };
-      
-      setMessages(prev => [...prev, tempMessage]);
-      scrollToBottom();
-
-      // Send via socket
-      socket.emit('send_message', {
-        conversationId,
-        content: newMessage.trim(),
-        messageType: 'text'
-      });
-
+      await sendToAdmin(newMessage.trim());
       setNewMessage('');
-      if (socket) socket.emit('typing_stop', { conversationId });
     } catch (error) {
       console.error('❌ ChatWidget: Error sending message:', error);
       setError('Không thể gửi tin nhắn');
     }
   };
 
-  // Handle image upload
+  // Handle image upload (simplified for now - can be expanded later)
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) { 
-      setError('Chỉ được gửi file ảnh'); 
-      return; 
+    if (!file.type.startsWith('image/')) {
+      setError('Chỉ được gửi file ảnh');
+      return;
     }
-    if (file.size > 5 * 1024 * 1024) { 
-      setError('Kích thước ảnh không được vượt quá 5MB'); 
-      return; 
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Kích thước ảnh không được vượt quá 5MB');
+      return;
     }
 
-    try {
-      setUploadingImage(true);
-      const formData = new FormData();
-      formData.append('image', file);
-      const uploadResponse = await chatAPI.uploadImage(formData);
-      const imageUrl = uploadResponse.data.data.imageUrl;
-      socket.emit('send_message', { 
-        conversationId, 
-        content: 'Đã gửi ảnh', 
-        messageType: 'image', 
-        imageUrl 
-      });
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    } catch (error) {
-      console.error('❌ ChatWidget: Error uploading image:', error);
-      setError('Không thể tải ảnh lên');
-    } finally {
-      setUploadingImage(false);
-    }
+    // For now, just show an error that image upload is not implemented
+    setError('Tính năng tải ảnh đang được phát triển');
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleTyping = (e) => {
     setNewMessage(e.target.value);
-    if (!socket || !conversationId) return;
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-    if (!isTyping) {
-      setIsTyping(true);
-      socket.emit('typing_start', { conversationId });
-    }
-    typingTimeoutRef.current = setTimeout(() => {
-      setIsTyping(false);
-      socket.emit('typing_stop', { conversationId });
-    }, 2000);
+    // Typing indicators can be added later if needed
   };
 
   const formatTime = (timestamp) => {

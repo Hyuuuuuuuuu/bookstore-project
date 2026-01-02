@@ -8,7 +8,7 @@ const ShippingProviderModal = ({ provider, onClose, onSave }) => {
     baseFee: '',
     estimatedTime: '',
     description: '',
-    active: true,
+    status: 'ACTIVE',
     contactInfo: {
       phone: '',
       email: '',
@@ -26,7 +26,7 @@ const ShippingProviderModal = ({ provider, onClose, onSave }) => {
         baseFee: provider.baseFee || '',
         estimatedTime: provider.estimatedTime || '',
         description: provider.description || '',
-        active: provider.active !== undefined ? provider.active : true,
+        status: provider.status || (provider.active !== undefined ? (provider.active ? 'ACTIVE' : 'DISABLED') : 'ACTIVE'),
         contactInfo: {
           phone: provider.contactInfo?.phone || '',
           email: provider.contactInfo?.email || '',
@@ -109,7 +109,9 @@ const ShippingProviderModal = ({ provider, onClose, onSave }) => {
       const dataToSave = {
         ...formData,
         baseFee: parseFloat(formData.baseFee),
-        code: formData.code.toUpperCase().trim()
+        code: formData.code.toUpperCase().trim(),
+        // send status field (ACTIVE/DISABLED)
+        status: formData.status
       }
 
       if (provider) {
@@ -255,7 +257,20 @@ const ShippingProviderModal = ({ provider, onClose, onSave }) => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Số điện thoại
                 </label>
-                <input
+            <div className="flex items-center gap-3">
+              <label className="text-sm text-gray-700">Trạng thái:</label>
+              <select
+                name="status"
+                value={formData.status}
+                onChange={handleInputChange}
+                className="px-3 py-2 border rounded-lg"
+              >
+                <option value="ACTIVE">Hoạt động</option>
+                <option value="DISABLED">Vô hiệu hóa</option>
+              </select>
+            </div>
+            <div>
+              <input
                   type="tel"
                   name="contactInfo.phone"
                   value={formData.contactInfo.phone}
@@ -307,18 +322,6 @@ const ShippingProviderModal = ({ provider, onClose, onSave }) => {
             </div>
           </div>
 
-          {/* Active Status */}
-          <div className="flex items-center">
-            <input
-              type="checkbox"
-              name="active"
-              checked={formData.active}
-              onChange={handleInputChange}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-            />
-            <label className="ml-2 block text-sm text-gray-900">
-              Đơn vị vận chuyển đang hoạt động
-            </label>
           </div>
 
           {/* Actions */}

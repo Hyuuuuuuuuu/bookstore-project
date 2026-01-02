@@ -29,6 +29,7 @@ public class VoucherResponseDTO {
     private LocalDateTime validFrom;
     private LocalDateTime validTo;
     private Boolean isActive;
+    private String status;
     private List<Long> applicableCategoryIds;
     private List<Long> applicableBookIds;
     private List<Long> applicableUserIds;
@@ -55,6 +56,24 @@ public class VoucherResponseDTO {
         dto.setValidFrom(voucher.getValidFrom());
         dto.setValidTo(voucher.getValidTo());
         dto.setIsActive(voucher.getIsActive());
+        
+        // Compute status:
+        // - "inactive" when admin explicitly deactivates (isActive == false)
+        // - "expired" when validity window passed OR usage limit reached
+        // - "active" when within validity and has remaining uses
+        String computedStatus = "active";
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        if (Boolean.FALSE.equals(voucher.getIsActive())) {
+            computedStatus = "inactive";
+        } else if (voucher.getValidTo() != null && voucher.getValidTo().isBefore(now)) {
+            computedStatus = "expired";
+        } else if (voucher.getUsageLimit() != null) {
+            Integer used = voucher.getUsedCount() != null ? voucher.getUsedCount() : 0;
+            if (used >= voucher.getUsageLimit()) {
+                computedStatus = "expired";
+            }
+        }
+        dto.setStatus(computedStatus);
         dto.setIsDeleted(voucher.getIsDeleted());
         dto.setCreatedAt(voucher.getCreatedAt());
         dto.setUpdatedAt(voucher.getUpdatedAt());

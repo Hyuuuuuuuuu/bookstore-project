@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { bookAPI, categoryAPI } from '../../../services/apiService';
+import fileUploadService from '../../../services/fileUploadService';
+import BookCard from '../../../components/BookCard';
 
 const UpdateBooksPage = () => {
   const { id } = useParams();
@@ -25,6 +27,7 @@ const UpdateBooksPage = () => {
     dimensions: '',
     weight: '',
     fileUrl: '',
+    imageUrl: '',
     isActive: true
   });
   
@@ -49,7 +52,12 @@ const UpdateBooksPage = () => {
             description: book.description || '',
             price: book.price || '',
             stock: book.stock || '',
-            categoryId: book.categoryId?._id || book.categoryId || '',
+            categoryId:
+              book.category?._id ||
+              book.category?.id ||
+              book.categoryId?._id ||
+              book.categoryId ||
+              '',
             isbn: book.isbn || '',
             publisher: book.publisher || '',
             publicationDate: book.publicationDate ? new Date(book.publicationDate).toISOString().split('T')[0] : '',
@@ -59,6 +67,7 @@ const UpdateBooksPage = () => {
             dimensions: book.dimensions || '',
             weight: book.weight || '',
             fileUrl: book.fileUrl || '',
+            imageUrl: book.imageUrl || '',
             isActive: book.isActive !== undefined ? book.isActive : true
           });
           
@@ -123,10 +132,16 @@ const UpdateBooksPage = () => {
       if (imageFile) {
         console.log('📤 Uploading image...', imageFile);
         try {
-          const uploadResponse = await bookAPI.uploadImage(imageFile);
+          const uploadResponse = await fileUploadService.uploadBookImage(imageFile);
           console.log('📤 Upload response:', uploadResponse);
-          imageUrl = uploadResponse.data.data.imageUrl;
+          // fileUploadService returns the API response object (response.data)
+          // which has shape: { statusCode, data: { filePath, fileUrl, ... }, message }
+          const returnedData = uploadResponse.data || uploadResponse; // be defensive
+          imageUrl = returnedData.fileUrl || (returnedData.data && returnedData.data.fileUrl) || '';
           console.log('✅ Image uploaded:', imageUrl);
+          if (imageUrl) {
+            setImagePreview(imageUrl.startsWith('http') ? imageUrl : `http://localhost:5000${imageUrl}`);
+          }
         } catch (uploadError) {
           console.error('❌ Upload error:', uploadError);
           throw uploadError;
@@ -179,9 +194,9 @@ const UpdateBooksPage = () => {
     <div className="w-full">
       <div className="bg-white">
         <form onSubmit={handleSubmit} className="p-0">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
             {/* Left Column - Thông tin cơ bản */}
-            <div className="space-y-6 p-6">
+            <div className="space-y-6 p-6 lg:col-span-1">
               <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">Thông tin cơ bản</h3>
               
               <div>
@@ -292,7 +307,7 @@ const UpdateBooksPage = () => {
             </div>
 
             {/* Middle Column - Thông tin bổ sung */}
-            <div className="space-y-6 p-6">
+            <div className="space-y-6 p-6 lg:col-span-1">
               <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">Thông tin bổ sung</h3>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -451,7 +466,7 @@ const UpdateBooksPage = () => {
             </div>
 
             {/* Third Column - Image Upload */}
-            <div className="space-y-6 p-6">
+            <div className="space-y-6 p-6 lg:col-span-1">
               <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">Ảnh bìa sách</h3>
               
               <div>
@@ -459,11 +474,15 @@ const UpdateBooksPage = () => {
                   <div className="space-y-1 text-center">
                     {imagePreview ? (
                       <div className="space-y-4">
-                        <img
-                          src={imagePreview}
-                          alt="Preview"
-                          className="mx-auto w-full h-96 object-cover rounded-lg shadow-sm"
-                        />
+                        <div className="w-full">
+                          <div className="w-full aspect-[2/3]">
+                            <img
+                              src={imagePreview}
+                              alt="Preview"
+                              className="w-full h-full object-cover rounded-lg shadow-sm"
+                            />
+                          </div>
+                        </div>
                         <div className="text-sm text-gray-600">
                           <label htmlFor="image-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
                             <span>Thay đổi ảnh</span>
@@ -477,6 +496,8 @@ const UpdateBooksPage = () => {
                             />
                           </label>
                         </div>
+
+                        {/* BookCard preview moved to its own right-side column */}
                       </div>
                     ) : (
                       <div className="space-y-4">
@@ -504,6 +525,25 @@ const UpdateBooksPage = () => {
                     )}
                   </div>
                 </div>
+              </div>
+            </div>
+
+            {/* Fourth Column - Live preview using BookCard */}
+            <div className="space-y-6 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">Xem trước mẫu</h3>
+              <div className="w-full flex justify-center">
+                <BookCard
+                  book={{
+                    _id: 'preview',
+                    title: formData.title || 'Tiêu đề sách',
+                    author: formData.author || '',
+                    price: formData.price ? Number(formData.price) : 0,
+                    imageUrl: imagePreview || formData.imageUrl || '',
+                    stock: formData.stock ? Number(formData.stock) : 1
+                  }}
+                  isPreview={true}
+                  key={imagePreview || formData.imageUrl || 'preview'}
+                />
               </div>
             </div>
           </div>

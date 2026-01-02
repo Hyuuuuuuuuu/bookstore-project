@@ -91,8 +91,10 @@ const ShippingProvidersPage = () => {
   // Toggle active status
   const handleToggleActive = async (providerId, currentStatus) => {
     try {
-      await axiosClient.put(`/shipping-providers/${providerId}`, { active: !currentStatus })
-      alert(`Đã ${!currentStatus ? 'kích hoạt' : 'vô hiệu hóa'} đơn vị vận chuyển!`)
+      // currentStatus may be 'ACTIVE' or 'DISABLED' (string). Toggle to opposite.
+      const newStatus = (currentStatus === 'ACTIVE') ? 'DISABLED' : 'ACTIVE';
+      await axiosClient.put(`/shipping-providers/${providerId}`, { status: newStatus })
+      alert(`Đã ${newStatus === 'ACTIVE' ? 'kích hoạt' : 'vô hiệu hóa'} đơn vị vận chuyển!`)
       fetchProviders()
     } catch (error) {
       console.error('Error toggling provider status:', error)
@@ -119,27 +121,11 @@ const ShippingProvidersPage = () => {
   }
 
   return (
-    <div className="p-6">
-      {/* Header */}
-      <div className="mb-6">
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Quản lý đơn vị vận chuyển</h1>
-            <p className="text-gray-600 mt-1">Quản lý các đơn vị giao hàng và phí vận chuyển</p>
-          </div>
-          <button
-            onClick={handleCreateNew}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
-          >
-            <PlusIcon className="w-5 h-5" />
-            Thêm đơn vị vận chuyển
-          </button>
-        </div>
-      </div>
+    <div className="space-y-6">
 
       {/* Filters and Search */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           {/* Search */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -201,6 +187,14 @@ const ShippingProvidersPage = () => {
               <option value="asc">Tăng dần</option>
             </select>
           </div>
+          <div className="flex items-end justify-end">
+            <button
+              onClick={handleCreateNew}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Thêm đơn vị vận chuyển
+            </button>
+          </div>
         </div>
       </div>
 
@@ -231,7 +225,7 @@ const ShippingProvidersPage = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Ngày tạo
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Thao tác
                   </th>
                 </tr>
@@ -273,28 +267,28 @@ const ShippingProvidersPage = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                          provider.active 
-                            ? 'bg-green-100 text-green-800' 
+                          (provider.status ? provider.status === 'ACTIVE' : provider.active)
+                            ? 'bg-green-100 text-green-800'
                             : 'bg-red-100 text-red-800'
                         }`}>
-                          {provider.active ? 'Hoạt động' : 'Không hoạt động'}
+                          {(provider.status ? provider.status === 'ACTIVE' : provider.active) ? 'Hoạt động' : 'Không hoạt động'}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {new Date(provider.createdAt).toLocaleDateString('vi-VN')}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex items-center justify-end gap-2">
+                      <td className="px-6 py-4 whitespace-nowrap text-left text-sm font-medium">
+                        <div className="flex items-center justify-start space-x-4">
                           <button
-                            onClick={() => handleToggleActive(provider._id, provider.active)}
-                            className={`p-2 rounded-lg ${
-                              provider.active 
-                                ? 'text-red-600 hover:bg-red-50' 
+                            onClick={() => handleToggleActive(provider._id, provider.status || (provider.active ? 'ACTIVE' : 'DISABLED'))}
+                            className={`p-2 rounded-md ${
+                              (provider.status ? provider.status === 'ACTIVE' : provider.active)
+                                ? 'text-red-600 hover:bg-red-50'
                                 : 'text-green-600 hover:bg-green-50'
                             }`}
-                            title={provider.active ? 'Vô hiệu hóa' : 'Kích hoạt'}
+                            title={(provider.status ? provider.status === 'ACTIVE' : provider.active) ? 'Vô hiệu hóa' : 'Kích hoạt'}
                           >
-                            {provider.active ? (
+                            {(provider.status ? provider.status === 'ACTIVE' : provider.active) ? (
                               <EyeSlashIcon className="w-4 h-4" />
                             ) : (
                               <EyeIcon className="w-4 h-4" />
@@ -302,17 +296,15 @@ const ShippingProvidersPage = () => {
                           </button>
                           <button
                             onClick={() => handleEditProvider(provider)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
-                            title="Chỉnh sửa"
+                            className="text-blue-600 hover:text-blue-900"
                           >
-                            <PencilIcon className="w-4 h-4" />
+                            Sửa
                           </button>
                           <button
                             onClick={() => handleDeleteProvider(provider._id)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
-                            title="Xóa"
+                            className="text-red-600 hover:underline text-sm font-medium whitespace-nowrap"
                           >
-                            <TrashIcon className="w-4 h-4" />
+                            Xóa
                           </button>
                         </div>
                       </td>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { bookAPI, categoryAPI } from '../../../services/apiService';
+import BookCard from '../../../components/BookCard';
 
 const ViewBookPage = () => {
   const { id } = useParams();
@@ -41,7 +42,8 @@ const ViewBookPage = () => {
   };
 
   const getStatusText = (status) => {
-    switch (status) {
+    const s = String(status || '').toLowerCase();
+    switch (s) {
       case 'available': return 'Có sẵn';
       case 'out_of_stock': return 'Hết hàng';
       case 'discontinued': return 'Ngừng bán';
@@ -51,7 +53,8 @@ const ViewBookPage = () => {
   };
 
   const getStatusColor = (status) => {
-    switch (status) {
+    const s = String(status || '').toLowerCase();
+    switch (s) {
       case 'available': return 'bg-green-100 text-green-800';
       case 'out_of_stock': return 'bg-yellow-100 text-yellow-800';
       case 'discontinued': return 'bg-red-100 text-red-800';
@@ -61,7 +64,8 @@ const ViewBookPage = () => {
   };
 
   const getFormatText = (format) => {
-    switch (format) {
+    const f = String(format || '').toLowerCase();
+    switch (f) {
       case 'paperback': return 'Bìa mềm';
       case 'hardcover': return 'Bìa cứng';
       case 'ebook': return 'Sách điện tử';
@@ -100,9 +104,9 @@ const ViewBookPage = () => {
   return (
     <div className="w-full">
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 p-6">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 p-6">
           {/* Left Column - Thông tin cơ bản */}
-          <div className="space-y-6">
+          <div className="space-y-6 lg:col-span-1">
             <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">Thông tin cơ bản</h3>
             
             <div>
@@ -122,7 +126,7 @@ const ViewBookPage = () => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Danh mục</label>
-              <div className="text-sm text-gray-900">{book.categoryId?.name || 'N/A'}</div>
+              <div className="text-sm text-gray-900">{book.category?.name || book.categoryId?.name || 'N/A'}</div>
             </div>
 
             <div>
@@ -139,7 +143,7 @@ const ViewBookPage = () => {
           </div>
 
           {/* Middle Column - Thông tin bổ sung */}
-          <div className="space-y-6">
+          <div className="space-y-6 lg:col-span-1">
             <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">Thông tin bổ sung</h3>
             
             <div className="grid grid-cols-1 gap-4">
@@ -174,35 +178,51 @@ const ViewBookPage = () => {
                 <div className="text-sm text-gray-900">{getFormatText(book.format)}</div>
               </div>
 
-              {book.format === 'paperback' || book.format === 'hardcover' ? (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Số trang</label>
-                    <div className="text-sm text-gray-900">{book.pages || 'N/A'}</div>
-                  </div>
+              {(() => {
+                const fmt = String(book.format || '').toLowerCase();
+                if (fmt === 'paperback' || fmt === 'hardcover') {
+                  return (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Số trang</label>
+                        <div className="text-sm text-gray-900">{book.pages || 'N/A'}</div>
+                      </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Kích thước</label>
-                    <div className="text-sm text-gray-900">{book.dimensions || 'N/A'}</div>
-                  </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Kích thước</label>
+                        <div className="text-sm text-gray-900">{book.dimensions || 'N/A'}</div>
+                      </div>
 
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Trọng lượng</label>
+                        <div className="text-sm text-gray-900">{book.weight ? `${book.weight}g` : 'N/A'}</div>
+                      </div>
+                    </>
+                  );
+                }
+
+                if (fmt === 'ebook' || fmt === 'audiobook') {
+                  return (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">File sách</label>
+                      <div className="text-sm text-gray-900">
+                        {book.fileUrl ? (
+                          <a href={book.fileUrl.startsWith('http') ? book.fileUrl : `http://localhost:5000${book.fileUrl}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800">
+                            Tải xuống
+                          </a>
+                        ) : 'N/A'}
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Trọng lượng</label>
-                    <div className="text-sm text-gray-900">{book.weight ? `${book.weight}g` : 'N/A'}</div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">File sách</label>
+                    <div className="text-sm text-gray-900">N/A</div>
                   </div>
-                </>
-              ) : (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">File sách</label>
-                  <div className="text-sm text-gray-900">
-                    {book.fileUrl ? (
-                      <a href={book.fileUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800">
-                        Tải xuống
-                      </a>
-                    ) : 'N/A'}
-                  </div>
-                </div>
-              )}
+                );
+              })()}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Trạng thái</label>
@@ -230,23 +250,29 @@ const ViewBookPage = () => {
           </div>
 
           {/* Right Column - Ảnh bìa sách */}
-          <div className="space-y-6">
+          <div className="space-y-6 lg:col-span-1">
             <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">Ảnh bìa sách</h3>
             
             <div className="flex justify-center">
               {book.imageUrl ? (
-                <img 
-                  src={book.imageUrl.startsWith('http') ? book.imageUrl : `http://localhost:5000${book.imageUrl}`}
-                  alt={book.title || 'Book cover'}
-                  className="w-full max-w-sm h-96 object-cover rounded-lg shadow-lg"
-                />
+                <div className="w-full">
+                  <div className="w-full aspect-[2/3]">
+                    <img 
+                      src={book.imageUrl.startsWith('http') ? book.imageUrl : `http://localhost:5000${book.imageUrl}`}
+                      alt={book.title || 'Book cover'}
+                      className="w-full h-full object-cover rounded-lg shadow-lg"
+                    />
+                  </div>
+                </div>
               ) : (
-                <div className="w-full max-w-sm h-96 bg-gray-200 rounded-lg flex items-center justify-center">
-                  <div className="text-center text-gray-500">
-                    <svg className="mx-auto h-12 w-12 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    <p className="text-sm">Không có ảnh</p>
+                <div className="w-full">
+                  <div className="w-full aspect-[2/3] bg-gray-200 rounded-lg flex items-center justify-center">
+                    <div className="text-center text-gray-500">
+                      <svg className="mx-auto h-12 w-12 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      <p className="text-sm">Không có ảnh</p>
+                    </div>
                   </div>
                 </div>
               )}
@@ -257,6 +283,24 @@ const ViewBookPage = () => {
                 <p><strong>Ngày tạo:</strong> {new Date(book.createdAt).toLocaleDateString('vi-VN')}</p>
                 <p><strong>Cập nhật lần cuối:</strong> {new Date(book.updatedAt).toLocaleDateString('vi-VN')}</p>
               </div>
+            </div>
+          </div>
+
+          {/* Fourth Column - Preview Card */}
+          <div className="space-y-6 lg:col-span-1">
+            <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">Xem trước mẫu</h3>
+            <div className="flex justify-center mt-4">
+              <BookCard
+                book={{
+                  _id: book._id || book.id || 'preview',
+                  title: book.title,
+                  author: book.author,
+                  price: book.price || 0,
+                  imageUrl: book.imageUrl,
+                  stock: book.stock || 1
+                }}
+                isPreview={true}
+              />
             </div>
           </div>
         </div>

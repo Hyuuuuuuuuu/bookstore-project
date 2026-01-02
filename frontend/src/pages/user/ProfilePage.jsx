@@ -3,6 +3,10 @@ import { useAuth } from '../../contexts/AuthContext';
 import { userAPI } from '../../services/apiService';
 
 const ProfilePage = () => {
+  const backendOrigin = import.meta.env.VITE_API_URL
+    ? import.meta.env.VITE_API_URL.replace(/\/api$/, '')
+    : 'http://localhost:5000';
+
   const { user, updateUser } = useAuth();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -201,7 +205,7 @@ const ProfilePage = () => {
                       <img src={avatarPreview} alt="Avatar preview" className="w-full h-full object-cover" />
                     ) : profile?.avatar ? (
                       <img
-                        src={profile.avatar.startsWith('http') ? profile.avatar : `http://localhost:5173${profile.avatar}`}
+                        src={profile.avatar.startsWith('http') ? profile.avatar : `${backendOrigin}${profile.avatar}`}
                         alt="Avatar"
                         className="w-full h-full object-cover"
                       />

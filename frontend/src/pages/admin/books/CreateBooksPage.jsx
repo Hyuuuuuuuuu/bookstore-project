@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { bookAPI, categoryAPI } from '../../../services/apiService';
+import fileUploadService from '../../../services/fileUploadService';
+import BookCard from '../../../components/BookCard';
 
 const CreateBooksPage = () => {
   const navigate = useNavigate();
@@ -26,6 +28,7 @@ const CreateBooksPage = () => {
   const [errors, setErrors] = useState({});
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -61,6 +64,24 @@ const CreateBooksPage = () => {
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
+      // Validate file
+      const validation = fileUploadService.validateImageFile(file, 5);
+      if (!validation.isValid) {
+        setErrors(prev => ({
+          ...prev,
+          image: validation.errors.join(', ')
+        }));
+        return;
+      }
+
+      // Clear previous errors
+      if (errors.image) {
+        setErrors(prev => ({
+          ...prev,
+          image: ''
+        }));
+      }
+
       setImageFile(file);
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -145,14 +166,17 @@ const CreateBooksPage = () => {
       console.log('📤 Image file state:', imageFile);
       if (imageFile) {
         console.log('📤 Uploading image...', imageFile);
+        setUploadingImage(true);
         try {
-          const uploadResponse = await bookAPI.uploadImage(imageFile);
+          const uploadResponse = await fileUploadService.uploadBookImage(imageFile);
           console.log('📤 Upload response:', uploadResponse);
-          imageUrl = uploadResponse.data.data.imageUrl;
+          imageUrl = uploadResponse.data.fileUrl; // Updated to match new API response
           console.log('✅ Image uploaded:', imageUrl);
         } catch (uploadError) {
           console.error('❌ Upload error:', uploadError);
-          throw uploadError;
+          throw new Error('Không thể upload ảnh: ' + (uploadError.response?.data?.message || uploadError.message));
+        } finally {
+          setUploadingImage(false);
         }
       } else {
         console.log('⚠️ No image file selected');
@@ -202,9 +226,9 @@ const CreateBooksPage = () => {
     <div className="w-full">
       <div className="bg-white">
         <form onSubmit={handleSubmit} className="p-0">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
             {/* Left Column */}
-            <div className="space-y-6 p-6">
+            <div className="space-y-6 p-6 lg:col-span-1">
               <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">Thông tin cơ bản</h3>
               
               <div>
@@ -315,7 +339,7 @@ const CreateBooksPage = () => {
             </div>
 
             {/* Right Column */}
-            <div className="space-y-6 p-6">
+            <div className="space-y-6 p-6 lg:col-span-1">
               <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">Thông tin bổ sung</h3>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -489,19 +513,23 @@ const CreateBooksPage = () => {
             </div>
 
             {/* Third Column - Image Upload */}
-            <div className="space-y-6 p-6">
+            <div className="space-y-6 p-6 lg:col-span-1">
               <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">Ảnh bìa sách</h3>
               
               <div>
                 <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-gray-400 transition-colors min-h-96">
                   <div className="space-y-1 text-center">
-                    {imagePreview ? (
+                      {imagePreview ? (
                       <div className="space-y-4">
-                        <img
-                          src={imagePreview}
-                          alt="Preview"
-                          className="mx-auto w-full h-96 object-cover rounded-lg shadow-sm"
-                        />
+                        <div className="w-full">
+                          <div className="w-full aspect-[2/3]">
+                            <img
+                              src={imagePreview}
+                              alt="Preview"
+                              className="w-full h-full object-cover rounded-lg shadow-sm"
+                            />
+                          </div>
+                        </div>
                         <div className="text-sm text-gray-600">
                           <label htmlFor="image-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
                             <span>Thay đổi ảnh</span>
@@ -515,6 +543,8 @@ const CreateBooksPage = () => {
                             />
                           </label>
                         </div>
+
+                        {/* BookCard preview moved to its own right-side column */}
                       </div>
                     ) : (
                       <div className="space-y-4">
@@ -536,14 +566,39 @@ const CreateBooksPage = () => {
                           <p className="pl-1">hoặc kéo thả</p>
                         </div>
                         <p className="text-xs text-gray-500">
-                          PNG, JPG, GIF lên đến 10MB
+                          PNG, JPG, GIF lên đến 5MB
                         </p>
+                        {errors.image && (
+                          <p className="text-red-500 text-sm mt-1">{errors.image}</p>
+                        )}
+                        {uploadingImage && (
+                          <p className="text-blue-500 text-sm mt-1">Đang tải ảnh lên...</p>
+                        )}
                       </div>
                     )}
                   </div>
                 </div>
               </div>
 
+            </div>
+
+            {/* Fourth Column - Live preview using BookCard */}
+            <div className="space-y-6 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">Xem trước mẫu</h3>
+              <div className="w-full flex justify-center">
+                <BookCard
+                  book={{
+                    _id: 'preview',
+                    title: formData.title || 'Tiêu đề sách',
+                    author: formData.author || '',
+                    price: formData.price ? Number(formData.price) : 0,
+                    imageUrl: imagePreview || '',
+                    stock: formData.stock ? Number(formData.stock) : 1
+                  }}
+                  isPreview={true}
+                  key={imagePreview || formData.imageUrl || 'preview'}
+                />
+              </div>
             </div>
           </div>
 
@@ -558,10 +613,10 @@ const CreateBooksPage = () => {
             </button>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || uploadingImage}
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'Đang tạo...' : 'Tạo sách'}
+              {loading || uploadingImage ? (uploadingImage ? 'Đang tải ảnh...' : 'Đang tạo...') : 'Tạo sách'}
             </button>
           </div>
         </form>

@@ -10,6 +10,6 @@ import java.util.Optional;
 @Repository
 public interface ShippingProviderRepository extends JpaRepository<ShippingProvider, Long> {
     Optional<ShippingProvider> findByCodeAndIsDeletedFalse(String code);
-    List<ShippingProvider> findByActiveTrueAndIsDeletedFalse();
+    List<ShippingProvider> findByStatusAndIsDeletedFalse(com.hutech.bookstore.model.ShippingProvider.Status status);
 }
 

@@ -23,10 +23,6 @@ public class BookResponseDTO {
     private String description;
     private String imageUrl;
     
-    // --- BỔ SUNG TRƯỜNG NÀY ĐỂ FIX LỖI SERVICE ---
-    private Long categoryId; 
-    // ---------------------------------------------
-
     @JsonProperty("category")
     private CategoryResponseDTO category;
     
@@ -69,13 +65,7 @@ public class BookResponseDTO {
         dto.setStock(book.getStock());
         dto.setDescription(book.getDescription());
         dto.setImageUrl(book.getImageUrl());
-        
-        // Cập nhật logic mapping cho Category
-        if (book.getCategory() != null) {
-            dto.setCategory(CategoryResponseDTO.fromEntity(book.getCategory()));
-            dto.setCategoryId(book.getCategory().getId()); // Map thêm ID để tiện xử lý
-        }
-        
+        dto.setCategory(book.getCategory() != null ? CategoryResponseDTO.fromEntity(book.getCategory()) : null);
         dto.setIsbn(book.getIsbn());
         dto.setPublisher(book.getPublisher());
         dto.setPublicationDate(book.getPublicationDate());
@@ -84,7 +74,6 @@ public class BookResponseDTO {
         dto.setDimensions(book.getDimensions());
         dto.setWeight(book.getWeight());
         dto.setFileUrl(book.getFileUrl());
-        
         if (book.getDigitalFile() != null) {
             DigitalFileDTO digitalFileDTO = new DigitalFileDTO();
             digitalFileDTO.setFilePath(book.getDigitalFile().getFilePath());
@@ -93,7 +82,6 @@ public class BookResponseDTO {
             digitalFileDTO.setDuration(book.getDigitalFile().getDuration());
             dto.setDigitalFile(digitalFileDTO);
         }
-        
         dto.setViewCount(book.getViewCount());
         dto.setIsActive(book.getIsActive());
         dto.setStatus(book.getStatus() != null ? book.getStatus().name() : null);
@@ -104,3 +92,4 @@ public class BookResponseDTO {
         return dto;
     }
 }
+

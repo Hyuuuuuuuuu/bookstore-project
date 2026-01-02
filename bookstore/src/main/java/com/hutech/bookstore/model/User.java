@@ -47,7 +47,7 @@ public class User {
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
 
-    @Enumerated(EnumType.STRING)
+    @jakarta.persistence.Convert(converter = User.UserStatusConverter.class)
     @Column(nullable = false)
     private UserStatus status = UserStatus.ACTIVE;
 
@@ -72,7 +72,26 @@ public class User {
     private LocalDateTime updatedAt;
 
     public enum UserStatus {
-        ACTIVE, INACTIVE, SUSPENDED, PENDING
+        ACTIVE, LOCKED
+    }
+
+    // Inner converter to tolerate legacy DB values without creating a separate file
+    public static class UserStatusConverter implements jakarta.persistence.AttributeConverter<UserStatus, String> {
+        @Override
+        public String convertToDatabaseColumn(UserStatus attribute) {
+            return attribute == null ? null : attribute.name();
+        }
+
+        @Override
+        public UserStatus convertToEntityAttribute(String dbData) {
+            if (dbData == null) return null;
+            try {
+                return UserStatus.valueOf(dbData);
+            } catch (IllegalArgumentException ex) {
+                // Unknown legacy value -> treat as LOCKED
+                return UserStatus.LOCKED;
+            }
+        }
     }
 }
 

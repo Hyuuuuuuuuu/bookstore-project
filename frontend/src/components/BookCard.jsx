@@ -5,7 +5,7 @@ import { useBookStatus } from '../contexts/BookStatusContext';
 import { favoriteAPI, cartAPI } from '../services/apiService';
 import BookModal from './BookModal';
 
-const BookCard = ({ book, showActions = false }) => {
+const BookCard = ({ book, showActions = false, isPreview = false, imageMaxWidth = '200px' }) => {
   const { user } = useAuth();
   const { isFavorite, isInCart, getCartQuantity, updateFavorite, updateCartItem, refreshData } = useBookStatus();
   const [loading, setLoading] = useState(false);
@@ -92,11 +92,11 @@ const BookCard = ({ book, showActions = false }) => {
       <div className="overflow-hidden group relative">
         {/* Phần trên - Ảnh sách với nền riêng */}
         <div className="bg-gray-200 p-4 relative">
-          <Link to={`/books/${bookId}`}>
-            <div className="w-full aspect-[2/3] bg-gray-100 rounded-md flex items-center justify-center mx-auto" style={{maxWidth: '200px'}}>
+          {isPreview ? (
+            <div className="w-full aspect-[2/3] bg-gray-100 rounded-md flex items-center justify-center mx-auto" style={{ maxWidth: imageMaxWidth }}>
               {book.imageUrl ? (
                 <img 
-                  src={book.imageUrl.startsWith('http') ? book.imageUrl : `http://localhost:5000${book.imageUrl}`} 
+                  src={(book.imageUrl.startsWith && (book.imageUrl.startsWith('http') || book.imageUrl.startsWith('data:'))) ? book.imageUrl : `http://localhost:5000${book.imageUrl}`} 
                   alt={book.title}
                   className="w-full h-full object-cover rounded-md"
                   onError={(e) => {
@@ -115,13 +115,39 @@ const BookCard = ({ book, showActions = false }) => {
                 </div>
               )}
             </div>
-          </Link>
+          ) : (
+            <Link to={`/books/${bookId}`}>
+              <div className="w-full aspect-[2/3] bg-gray-100 rounded-md flex items-center justify-center mx-auto" style={{ maxWidth: imageMaxWidth }}>
+                {book.imageUrl ? (
+                  <img
+                    src={(book.imageUrl.startsWith && (book.imageUrl.startsWith('http') || book.imageUrl.startsWith('data:'))) ? book.imageUrl : `http://localhost:5000${book.imageUrl}`}
+                    alt={book.title}
+                    className="w-full h-full object-cover rounded-md"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                      if (e.target.nextSibling) {
+                        e.target.nextSibling.style.display = 'block';
+                      }
+                    }}
+                  />
+                ) : (
+                  <div className="text-gray-500 text-center">
+                    <svg className="w-16 h-16 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                    </svg>
+                    <span className="text-lg">No Image</span>
+                  </div>
+                )}
+              </div>
+            </Link>
+          )}
 
         {/* Nút chức năng khi hover - Ở cuối phần trên */}
         <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all duration-300 ease-out">
           <div className="flex space-x-2">
             {/* Nút xem chi tiết */}
             <button 
+              type="button"
               onClick={(e) => {
                 e.preventDefault();
                 setShowModal(true);
@@ -137,11 +163,14 @@ const BookCard = ({ book, showActions = false }) => {
 
             {/* Nút yêu thích */}
             <button 
+              type="button"
               onClick={(e) => {
                 e.preventDefault();
+                if (isPreview) return;
                 handleToggleFavorite();
               }}
-              className={`w-10 h-10 bg-white border border-gray-300 rounded-md flex items-center justify-center hover:bg-gray-50 transition-colors shadow-sm ${bookIsFavorite ? 'border-red-300' : ''}`}
+              disabled={isPreview || loading}
+              className={`w-10 h-10 bg-white border border-gray-300 rounded-md flex items-center justify-center hover:bg-gray-50 transition-colors shadow-sm ${bookIsFavorite ? 'border-red-300' : ''} ${isPreview ? 'opacity-50 cursor-not-allowed' : ''}`}
               title={bookIsFavorite ? "Bỏ yêu thích" : "Thêm yêu thích"}
             >
               <svg 
@@ -185,9 +214,10 @@ const BookCard = ({ book, showActions = false }) => {
         {/* Nút ADD TO CART khi hover - Trong phần dưới */}
         <div className="opacity-0 group-hover:opacity-100 transition-all duration-300 ease-out absolute top-0 left-0 right-0 flex items-center justify-center">
           <button 
-            onClick={handleAddToCart}
-            disabled={loading}
-            className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-md flex items-center justify-center space-x-2 transition-colors shadow-lg"
+            type="button"
+            onClick={(e) => { e.preventDefault(); if (isPreview) return; handleAddToCart(); }}
+            disabled={isPreview || loading}
+            className={`bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-md flex items-center justify-center space-x-2 transition-colors shadow-lg ${isPreview ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4m0 0L7 13m0 0l-2.5 5M7 13l2.5 5m6-5v6a2 2 0 01-2 2H9a2 2 0 01-2-2v-6m8 0V9a2 2 0 00-2-2H9a2 2 0 00-2 2v4.01" />
@@ -203,6 +233,7 @@ const BookCard = ({ book, showActions = false }) => {
       book={book} 
       isOpen={showModal} 
       onClose={() => setShowModal(false)} 
+      disableAddToCart={isPreview}
     />
     </>
   );

@@ -7,7 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.core.annotation.Order;
+// Use fully-qualified annotation below to avoid name clash with model.Order
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,7 +30,7 @@ import java.util.Random;
 @Slf4j
 @RequiredArgsConstructor
 @ConditionalOnProperty(name = "app.seed.enabled", havingValue = "true", matchIfMissing = false)
-@Order(1)
+@org.springframework.core.annotation.Order(1)
 public class DataSeeder implements CommandLineRunner {
 
     private final RoleRepository roleRepository;
@@ -41,6 +41,8 @@ public class DataSeeder implements CommandLineRunner {
     private final VoucherRepository voucherRepository;
     private final AddressRepository addressRepository;
     private final PasswordEncoder passwordEncoder;
+    private final OrderRepository orderRepository;
+    private final OrderItemRepository orderItemRepository;
 
     @Value("${app.seed.clear-existing:false}")
     private boolean clearExisting;
@@ -73,6 +75,9 @@ public class DataSeeder implements CommandLineRunner {
 
             // Seed addresses
             seedAddresses();
+
+            // Seed orders (ensure each user has at least 4 completed orders)
+            seedOrders();
 
             // Seed vouchers
             seedVouchers();
@@ -128,13 +133,36 @@ public class DataSeeder implements CommandLineRunner {
         // Trong reset mode, luôn tạo lại tất cả (đã xóa trong clearExistingData)
         // Trong seed mode, chỉ tạo những gì chưa tồn tại
         if (clearExisting) {
-            // Reset mode: Tạo lại tất cả categories
-            List<Category> categories = Arrays.asList(
-                new Category(null, "Tiểu thuyết", "Các tác phẩm văn học mang tính hư cấu, cảm xúc và chiều sâu tâm lý.", false, null, null),
-                new Category(null, "Lịch sử - Văn hóa", "Sách ghi lại các sự kiện, văn hóa và truyền thống dân tộc.", false, null, null),
-                new Category(null, "Khoa học", "Kiến thức về tự nhiên, vật lý, sinh học, vũ trụ và nghiên cứu khoa học.", false, null, null),
-                new Category(null, "Công nghệ thông tin", "Sách về lập trình, AI, mạng, và công nghệ số.", false, null, null)
-            );
+            // Reset mode: Tạo lại tất cả categories (sử dụng setters để bám sát model hiện tại)
+            List<Category> categories = new ArrayList<>();
+            Category c1 = new Category();
+            c1.setName("Tiểu thuyết");
+            c1.setDescription("Các tác phẩm văn học mang tính hư cấu, cảm xúc và chiều sâu tâm lý.");
+            c1.setStatus("active");
+            c1.setIsDeleted(false);
+            categories.add(c1);
+
+            Category c2 = new Category();
+            c2.setName("Lịch sử - Văn hóa");
+            c2.setDescription("Sách ghi lại các sự kiện, văn hóa và truyền thống dân tộc.");
+            c2.setStatus("active");
+            c2.setIsDeleted(false);
+            categories.add(c2);
+
+            Category c3 = new Category();
+            c3.setName("Khoa học");
+            c3.setDescription("Kiến thức về tự nhiên, vật lý, sinh học, vũ trụ và nghiên cứu khoa học.");
+            c3.setStatus("active");
+            c3.setIsDeleted(false);
+            categories.add(c3);
+
+            Category c4 = new Category();
+            c4.setName("Công nghệ thông tin");
+            c4.setDescription("Sách về lập trình, AI, mạng, và công nghệ số.");
+            c4.setStatus("active");
+            c4.setIsDeleted(false);
+            categories.add(c4);
+
             categoryRepository.saveAll(categories);
             log.info("✅ Created {} categories (reset mode)", categories.size());
         } else {
@@ -151,7 +179,12 @@ public class DataSeeder implements CommandLineRunner {
             
             for (int i = 0; i < categoryNames.length; i++) {
                 if (categoryRepository.findByNameAndIsDeletedFalse(categoryNames[i]).isEmpty()) {
-                    categoriesToCreate.add(new Category(null, categoryNames[i], categoryDescriptions[i], false, null, null));
+                    Category c = new Category();
+                    c.setName(categoryNames[i]);
+                    c.setDescription(categoryDescriptions[i]);
+                    c.setStatus("active");
+                    c.setIsDeleted(false);
+                    categoriesToCreate.add(c);
                 }
             }
             
@@ -177,26 +210,26 @@ public class DataSeeder implements CommandLineRunner {
         ShippingProvider.ContactInfo ghnContact = new ShippingProvider.ContactInfo(
             "1900 1234", "support@ghn.vn", "https://ghn.vn"
         );
-        providers.add(new ShippingProvider(null, "Giao Hàng Nhanh", "GHN", 25000.0, 
-            "2-3 ngày", true, "Dịch vụ giao hàng nhanh chóng và tin cậy", ghnContact, false, null, null));
+        providers.add(new ShippingProvider(null, "Giao Hàng Nhanh", "GHN", 25000.0,
+            "2-3 ngày", ShippingProvider.Status.ACTIVE, "Dịch vụ giao hàng nhanh chóng và tin cậy", ghnContact, false, null, null));
 
         ShippingProvider.ContactInfo ghtkContact = new ShippingProvider.ContactInfo(
             "1900 5678", "support@ghtk.vn", "https://ghtk.vn"
         );
-        providers.add(new ShippingProvider(null, "Giao Hàng Tiết Kiệm", "GHTK", 20000.0, 
-            "3-5 ngày", true, "Dịch vụ giao hàng tiết kiệm chi phí", ghtkContact, false, null, null));
+        providers.add(new ShippingProvider(null, "Giao Hàng Tiết Kiệm", "GHTK", 20000.0,
+            "3-5 ngày", ShippingProvider.Status.ACTIVE, "Dịch vụ giao hàng tiết kiệm chi phí", ghtkContact, false, null, null));
 
         ShippingProvider.ContactInfo vnpostContact = new ShippingProvider.ContactInfo(
             "1900 9012", "support@vnpost.vn", "https://vnpost.vn"
         );
-        providers.add(new ShippingProvider(null, "Vietnam Post", "VNPOST", 15000.0, 
-            "5-7 ngày", true, "Dịch vụ bưu điện quốc gia", vnpostContact, false, null, null));
+        providers.add(new ShippingProvider(null, "Vietnam Post", "VNPOST", 15000.0,
+            "5-7 ngày", ShippingProvider.Status.ACTIVE, "Dịch vụ bưu điện quốc gia", vnpostContact, false, null, null));
 
         ShippingProvider.ContactInfo jntContact = new ShippingProvider.ContactInfo(
             "1900 3456", "support@jtexpress.vn", "https://jtexpress.vn"
         );
-        providers.add(new ShippingProvider(null, "J&T Express", "JNT", 22000.0, 
-            "2-4 ngày", true, "Dịch vụ giao hàng express", jntContact, false, null, null));
+        providers.add(new ShippingProvider(null, "J&T Express", "JNT", 22000.0,
+            "2-4 ngày", ShippingProvider.Status.ACTIVE, "Dịch vụ giao hàng express", jntContact, false, null, null));
 
         shippingProviderRepository.saveAll(providers);
         log.info("✅ Created {} shipping providers", providers.size());
@@ -226,7 +259,7 @@ public class DataSeeder implements CommandLineRunner {
                     userRole, true, User.UserStatus.ACTIVE),
                 createUser("Test User", "Lê Văn Test", "test@bookstore.com", 
                     "test123", "0369852147", "789 Test Road, Ho Chi Minh City", 
-                    userRole, false, User.UserStatus.PENDING)
+                    userRole, false, User.UserStatus.LOCKED)
             );
             userRepository.saveAll(users);
             log.info("✅ Created {} users (reset mode)", users.size());
@@ -252,7 +285,7 @@ public class DataSeeder implements CommandLineRunner {
             if (userRepository.findByEmailAndIsDeletedFalse("test@bookstore.com").isEmpty()) {
                 usersToCreate.add(createUser("Test User", "Lê Văn Test", "test@bookstore.com", 
                     "test123", "0369852147", "789 Test Road, Ho Chi Minh City", 
-                    userRole, false, User.UserStatus.PENDING));
+                    userRole, false, User.UserStatus.LOCKED));
             }
 
             if (!usersToCreate.isEmpty()) {
@@ -384,6 +417,64 @@ public class DataSeeder implements CommandLineRunner {
         log.info("✅ Created {} addresses", addresses.size());
     }
 
+    private void seedOrders() {
+        // Create at least 4 completed orders for each user
+        List<User> users = userRepository.findAll();
+        List<Book> books = bookRepository.findAll();
+        List<ShippingProvider> providers = shippingProviderRepository.findAll();
+        if (users.isEmpty() || books.isEmpty() || providers.isEmpty()) {
+            log.warn("Users/books/providers not ready, skipping orders seeding");
+            return;
+        }
+
+        List<Order> createdOrders = new ArrayList<>();
+        List<OrderItem> createdItems = new ArrayList<>();
+
+        for (User user : users) {
+            // create 4 delivered & paid orders per user
+            for (int i = 0; i < 4; i++) {
+                Book book = books.get(random.nextInt(books.size()));
+                int qty = 1 + random.nextInt(3);
+                double price = book.getPrice() != null ? book.getPrice() : 0.0;
+                double itemsTotal = price * qty;
+                ShippingProvider provider = providers.get(random.nextInt(providers.size()));
+                double shippingFee = provider.getBaseFee() != null ? provider.getBaseFee() : 0.0;
+
+                Order order = new Order();
+                order.setOrderCode("ORD-" + System.currentTimeMillis() + "-" + random.nextInt(1000));
+                order.setUser(user);
+                order.setOriginalAmount(itemsTotal);
+                order.setDiscountAmount(0.0);
+                order.setShippingProvider(provider);
+                order.setShippingAddress(addressRepository.findByUserAndIsDefaultTrueAndIsDeletedFalse(user).orElseGet(() -> {
+                    List<Address> addrList = addressRepository.findByUserAndIsDeletedFalseOrderByIsDefaultDescCreatedAtDesc(user);
+                    return addrList.isEmpty() ? null : addrList.get(0);
+                }));
+                order.setShippingFee(shippingFee);
+                order.setTotalPrice(itemsTotal + shippingFee);
+                order.setPaymentMethod(Order.PaymentMethod.MOMO);
+                order.setStatus(Order.OrderStatus.DELIVERED);
+                order.setPaymentStatus(Order.PaymentStatus.COMPLETED);
+                order.setTransactionId("TXN-" + System.currentTimeMillis() + "-" + random.nextInt(1000));
+                order.setPaidAt(LocalDateTime.now().minusDays(random.nextInt(10)));
+                order.setIsDeleted(false);
+
+                Order savedOrder = orderRepository.save(order);
+                createdOrders.add(savedOrder);
+
+                OrderItem item = new OrderItem();
+                item.setOrder(savedOrder);
+                item.setBook(book);
+                item.setQuantity(qty);
+                item.setPriceAtPurchase(price);
+                item.setIsDeleted(false);
+                createdItems.add(item);
+            }
+        }
+
+        orderItemRepository.saveAll(createdItems);
+        log.info("✅ Created {} orders and {} order items (4 per user)", createdOrders.size(), createdItems.size());
+    }
     private void seedVouchers() {
         // Trong reset mode, luôn tạo lại (đã xóa trong clearExistingData)
         // Trong seed mode, chỉ tạo nếu chưa tồn tại
@@ -398,43 +489,60 @@ public class DataSeeder implements CommandLineRunner {
             .findFirst()
             .orElse(users.get(0));
 
+        LocalDateTime now = LocalDateTime.now();
+
         List<Voucher> vouchers = Arrays.asList(
-            createVoucher("WELCOME10", "Giảm 10% cho khách hàng mới", 
-                "Giảm 10% cho khách hàng mới", Voucher.VoucherType.PERCENTAGE, 10.0, 
-                100000.0, 50000.0, 100, 
-                LocalDateTime.of(2025, 1, 1, 0, 0), 
-                LocalDateTime.of(2025, 12, 31, 23, 59), adminUser),
-            createVoucher("FREESHIP50", "Giảm 50.000 cho đơn từ 200.000", 
-                "Giảm 50.000 cho đơn từ 200.000", Voucher.VoucherType.FIXED_AMOUNT, 50000.0, 
-                200000.0, 50000.0, 300, 
-                LocalDateTime.of(2025, 2, 1, 0, 0), 
-                LocalDateTime.of(2025, 12, 31, 23, 59), adminUser),
-            createVoucher("READMORE20", "Ưu đãi 20% cho sách kỹ năng sống", 
-                "Ưu đãi 20% cho sách kỹ năng sống", Voucher.VoucherType.PERCENTAGE, 20.0, 
-                150000.0, 80000.0, 200, 
-                LocalDateTime.of(2025, 3, 1, 0, 0), 
-                LocalDateTime.of(2025, 9, 1, 23, 59), adminUser),
-            createVoucher("TECH30K", "Giảm 30.000 cho sách công nghệ", 
-                "Giảm 30.000 cho sách công nghệ", Voucher.VoucherType.FIXED_AMOUNT, 30000.0, 
-                120000.0, 30000.0, 150, 
-                LocalDateTime.of(2025, 4, 1, 0, 0), 
-                LocalDateTime.of(2025, 10, 1, 23, 59), adminUser),
-            createVoucher("SUMMER15", "Giảm 15% cho đơn mùa hè", 
-                "Giảm 15% cho đơn mùa hè", Voucher.VoucherType.PERCENTAGE, 15.0, 
-                100000.0, 70000.0, 500, 
-                LocalDateTime.of(2025, 6, 1, 0, 0), 
-                LocalDateTime.of(2025, 8, 31, 23, 59), adminUser)
+            // Active vouchers
+            createVoucher("WELCOME10", "Giảm 10% cho khách hàng mới",
+                "Giảm 10% cho khách hàng mới", Voucher.VoucherType.PERCENTAGE, 10.0,
+                100000.0, 50000.0, 100,
+                now.minusDays(30),
+                now.plusDays(30), true, adminUser),
+            createVoucher("FREESHIP50", "Giảm 50.000 cho đơn từ 200.000",
+                "Giảm 50.000 cho đơn từ 200.000", Voucher.VoucherType.FIXED_AMOUNT, 50000.0,
+                200000.0, 50000.0, 300,
+                now.minusDays(15),
+                now.plusDays(60), true, adminUser),
+            createVoucher("READMORE20", "Ưu đãi 20% cho sách kỹ năng sống",
+                "Ưu đãi 20% cho sách kỹ năng sống", Voucher.VoucherType.PERCENTAGE, 20.0,
+                150000.0, 80000.0, 200,
+                now.minusDays(10),
+                now.plusDays(20), true, adminUser),
+
+            // Expired vouchers (hết hạn)
+            createVoucher("TECH30K", "Giảm 30.000 cho sách công nghệ",
+                "Giảm 30.000 cho sách công nghệ", Voucher.VoucherType.FIXED_AMOUNT, 30000.0,
+                120000.0, 30000.0, 150,
+                now.minusDays(60),
+                now.minusDays(5), true, adminUser),
+            createVoucher("SUMMER15", "Giảm 15% cho đơn mùa hè",
+                "Giảm 15% cho đơn mùa hè", Voucher.VoucherType.PERCENTAGE, 15.0,
+                100000.0, 70000.0, 500,
+                now.minusDays(30),
+                now.minusDays(1), true, adminUser),
+
+            // Inactive vouchers (bị admin tắt)
+            createVoucher("WINTER25", "Giảm 25% mùa đông",
+                "Giảm 25% mùa đông", Voucher.VoucherType.PERCENTAGE, 25.0,
+                200000.0, 100000.0, 100,
+                now.minusDays(10),
+                now.plusDays(30), false, adminUser),
+            createVoucher("FLASH40K", "Giảm 40.000 flash sale",
+                "Giảm 40.000 flash sale", Voucher.VoucherType.FIXED_AMOUNT, 40000.0,
+                150000.0, 40000.0, 50,
+                now.minusDays(5),
+                now.plusDays(15), false, adminUser)
         );
 
         voucherRepository.saveAll(vouchers);
-        log.info("✅ Created {} vouchers", vouchers.size());
+        log.info("✅ Created {} vouchers (Active: 3, Expired: 2, Inactive: 2)", vouchers.size());
     }
 
-    private Voucher createVoucher(String code, String name, String description, 
-                                  Voucher.VoucherType type, Double value, 
-                                  Double minOrderAmount, Double maxDiscountAmount, 
-                                  Integer usageLimit, LocalDateTime validFrom, 
-                                  LocalDateTime validTo, User createdBy) {
+    private Voucher createVoucher(String code, String name, String description,
+                                  Voucher.VoucherType type, Double value,
+                                  Double minOrderAmount, Double maxDiscountAmount,
+                                  Integer usageLimit, LocalDateTime validFrom,
+                                  LocalDateTime validTo, Boolean isActive, User createdBy) {
         Voucher voucher = new Voucher();
         voucher.setCode(code);
         voucher.setName(name);
@@ -447,7 +555,7 @@ public class DataSeeder implements CommandLineRunner {
         voucher.setUsedCount(0);
         voucher.setValidFrom(validFrom);
         voucher.setValidTo(validTo);
-        voucher.setIsActive(true);
+        voucher.setIsActive(isActive);
         voucher.setCreatedBy(createdBy);
         voucher.setIsDeleted(false);
         return voucher;

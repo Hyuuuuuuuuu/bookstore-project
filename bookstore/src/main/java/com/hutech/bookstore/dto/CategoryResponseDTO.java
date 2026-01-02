@@ -17,6 +17,7 @@ public class CategoryResponseDTO {
     
     private String name;
     private String description;
+    private String status;
     private Boolean isDeleted;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -29,6 +30,7 @@ public class CategoryResponseDTO {
         CategoryResponseDTO dto = new CategoryResponseDTO();
         dto.setId(category.getId());
         dto.setName(category.getName());
+        dto.setStatus(category.getStatus());
         dto.setDescription(category.getDescription());
         dto.setIsDeleted(category.getIsDeleted());
         dto.setCreatedAt(category.getCreatedAt());

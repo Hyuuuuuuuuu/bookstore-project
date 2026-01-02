@@ -1,3 +1,4 @@
+// frontend\src\routes\AppRoutes.jsx
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import HomePage from '../pages/HomePage';
@@ -33,7 +34,6 @@ import ViewCategoryPage from '../pages/admin/categories/ViewCategoryPage';
 import OrdersPage from '../pages/admin/orders/OrdersPage';
 import AdminOrderDetailPage from '../pages/admin/orders/AdminOrderDetailPage';
 import UsersPage from '../pages/admin/users/UsersPage';
-import CreateUserPage from '../pages/admin/users/CreateUserPage';
 import ReportsPage from '../pages/admin/reports/ReportsPage';
 import PaymentsPage from '../pages/admin/payments/PaymentsPage';
 import VouchersPage from '../pages/admin/vouchers/VouchersPage';
@@ -43,9 +43,11 @@ import ViewVouchersPage from '../pages/admin/vouchers/ViewVouchersPage';
 import ChatsPage from '../pages/admin/chats/ChatsPage';
 import ShippingProvidersPage from '../pages/admin/shipping/ShippingProvidersPage';
 import { useAuth } from '../contexts/AuthContext';
+
 // Authentication check using AuthContext
 const PrivateRoute = ({ children }) => {
   const { user, loading } = useAuth();
+
 
   if (loading) {
     return <div>Loading...</div>;
@@ -79,10 +81,13 @@ const AdminRoute = ({ children }) => {
 const PublicRoute = ({ children }) => {
   const { user, loading } = useAuth();
 
+
   if (loading) {
     return <div>Loading...</div>;
   }
 
+  // Allow access to public routes even if user is logged in
+  // Only redirect if user is on login/register pages and already authenticated
   const currentPath = window.location.pathname;
   if (user && (currentPath === '/login' || currentPath === '/register')) {
     return <Navigate to="/" replace />;
@@ -91,7 +96,22 @@ const PublicRoute = ({ children }) => {
   return children;
 };
 
+const MainLayoutRoute = ({ children }) => {
+  return <MainLayout>{children}</MainLayout>;
+};
+
+// Component kết hợp UserLayout với MainLayout
+const UserLayoutRoute = ({ children }) => {
+  return (
+    <MainLayout>
+      {children}
+    </MainLayout>
+  );
+};
+
+
 const AppRoutes = () => {
+
   return (
     <Routes>
       {/* Public Routes with MainLayout */}
@@ -102,7 +122,6 @@ const AppRoutes = () => {
       <Route path="/books" element={<MainLayout><BookPage /></MainLayout>} />
       <Route path="/books/:id" element={<MainLayout><BookDetailPage /></MainLayout>} />
       <Route path="/order" element={<MainLayout><OrderPage /></MainLayout>} />
-      
       <Route
         path="/orders"
         element={
@@ -325,8 +344,6 @@ const AppRoutes = () => {
           </AdminRoute>
         }
       />
-      
-      {/* Users Management */}
       <Route
         path="/admin/users"
         element={
@@ -337,19 +354,6 @@ const AppRoutes = () => {
           </AdminRoute>
         }
       />
-      
-      {/* ✅ BỔ SUNG ROUTE TẠO NGƯỜI DÙNG */}
-      <Route
-        path="/admin/users/create"
-        element={
-          <AdminRoute>
-            <AdminLayout>
-              <CreateUserPage />
-            </AdminLayout>
-          </AdminRoute>
-        }
-      />
-
       <Route
         path="/admin/reports"
         element={
@@ -420,6 +424,7 @@ const AppRoutes = () => {
           </AdminRoute>
         }
       />
+
       {/* Catch all route */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

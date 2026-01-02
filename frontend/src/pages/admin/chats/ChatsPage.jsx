@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { io } from 'socket.io-client';
+import chatService from '../../../services/chatService';
 import { useAuth } from '../../../contexts/AuthContext';
-import { chatAPI } from '../../../services/apiService';
+import { chatAPI, messageAPI } from '../../../services/apiService';
 
 const ChatsPage = () => {
   const { user, token } = useAuth();
-  const [socket, setSocket] = useState(null);
+  const [connected, setConnected] = useState(false);
   const [conversations, setConversations] = useState([]);
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newMessage, setNewMessage] = useState('');
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editingText, setEditingText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [typingUsers, setTypingUsers] = useState([]);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -22,37 +24,66 @@ const ChatsPage = () => {
   const currentConversationIdRef = useRef(null); // Track conversationId hiện tại đang load
   const isUserScrollingRef = useRef(false); // Track user scroll state
   const lastMessagesLengthRef = useRef(0); // Track số lượng messages để detect tin nhắn mới
+  const conversationSubRef = useRef(null); // STOMP subscription for selected conversation
   // FIX: Sử dụng Set để track messageId (O(1) lookup) - tránh duplicate messages
   const messageIdsSetRef = useRef(new Set()); // Track messageId đã thêm vào state
   // FIX: Sử dụng Set để track messageId đang được xử lý (lock mechanism - tránh race condition)
   const processingMessagesRef = useRef(new Set()); // Track messageId đang được xử lý
 
-  // Initialize socket connection
+  // Helper function to generate conversation ID
+  const generateConversationId = (userId1, userId2) => {
+    const minId = Math.min(userId1, userId2);
+    const maxId = Math.max(userId1, userId2);
+    return `${minId}_${maxId}`;
+  };
+
+  // Initialize WebSocket connection for admin
   useEffect(() => {
-    if (!token) return
+    if (!token || !user) return
 
-    const newSocket = io('http://localhost:5000', {
-      auth: {
-        token: token
+    try {
+      // Connect to WebSocket with admin user ID
+      chatService.connect(token, user._id)
+      setConnected(chatService.isConnected)
+
+      // global message handler for admin
+      const handleIncoming = (msg) => {
+        // Expect msg to be message DTO with conversationId
+        if (!msg) return
+
+        // If conversation exists in list, update last message preview/time
+        setConversations(prev => {
+          const conversationId = msg.conversationId || generateConversationId(msg.fromUser?.userId, msg.toUser?.userId)
+          const idx = prev.findIndex(c => c.conversationId === conversationId)
+          if (idx === -1) return prev
+          const copy = [...prev]
+          copy[idx] = {
+            ...copy[idx],
+            lastMessageTime: msg.timestamp || new Date(),
+            messages: [...(copy[idx].messages || []), msg]
+          }
+          return copy
+        })
       }
-    })
 
-    newSocket.on('connect', () => {
-      setSocket(newSocket)
-    })
+      const handleError = (err) => {
+        console.error('WebSocket error (admin):', err)
+        setConnected(false)
+      }
 
-    newSocket.on('disconnect', () => {
-      // Handle disconnect
-    })
+      chatService.onMessage(handleIncoming)
+      chatService.onError(handleError)
 
-    newSocket.on('connect_error', (error) => {
-      console.error('❌ Connection error:', error)
-    })
-
-    return () => {
-      newSocket.close()
+      return () => {
+        chatService.offMessage(handleIncoming)
+        chatService.offError(handleError)
+        chatService.disconnect()
+        setConnected(false)
+      }
+    } catch (e) {
+      console.error('Admin WebSocket init error', e)
     }
-  }, [token])
+  }, [token, user])
 
   // Load conversations - FIX: Chỉ set loading lần đầu, tránh reload không cần thiết
   useEffect(() => {
@@ -77,10 +108,11 @@ const ChatsPage = () => {
       }
     }
 
-    if (socket && user) {
+    if (connected && user) {
       loadConversations()
     }
-  }, [socket, user?._id]) // FIX: Chỉ dùng user._id thay vì toàn bộ user object
+  }, [connected, user?._id]) // FIX: Chỉ dùng user._id thay vì toàn bộ user object
+  // NOTE: updated dependency to connected; keep previous behavior but rely on STOMP
 
   // Load messages when conversation is selected - FIX: Tránh reload khi user object thay đổi reference
   useEffect(() => {
@@ -151,11 +183,7 @@ const ChatsPage = () => {
           }
         })
         
-        // FIX: Join conversation room khi chọn conversation
-        // Đảm bảo join đúng format conversationId
-        if (socket && convId) {
-          socket.emit('join_conversation', convId)
-        }
+        // For STOMP: subscribe to conversation topic when selected (handled elsewhere)
       } catch (error) {
         console.error('Error loading messages:', error)
         currentConversationIdRef.current = null // Reset on error
@@ -163,218 +191,140 @@ const ChatsPage = () => {
     }
 
     loadMessages()
-  }, [selectedConversation?.conversationId || selectedConversation?._id, socket]) // FIX: Chỉ dùng conversationId thay vì toàn bộ object
+  }, [selectedConversation?.conversationId || selectedConversation?._id, connected]) // FIX: Chỉ dùng conversationId thay vì toàn bộ object
   
   // Update ref với selected conversation hiện tại
   useEffect(() => {
     selectedConversationRef.current = selectedConversation
   }, [selectedConversation])
 
-  // FIX #6: Socket event listeners - Đảm bảo chỉ đăng ký 1 lần
-  // VẤN ĐỀ: Socket event listener có thể bị đăng ký nhiều lần nếu component re-render
-  // GIẢI PHÁP: Cleanup trước khi đăng ký mới và đảm bảo dependencies đúng
+  // WebSocket message handler - simplified for raw WebSocket
   useEffect(() => {
-    if (!socket) return
-
-    // FIX: Đảm bảo cleanup trước khi đăng ký mới (tránh duplicate listeners)
-    // Socket.io cho phép multiple listeners, nhưng ta muốn chỉ 1 listener
-    socket.off('new_message')
-    socket.off('user_typing_conversation')
-    socket.off('user_joined_conversation')
-    socket.off('user_left_conversation')
+    if (!connected) return
 
     const handleNewMessage = (data) => {
-      // Kiểm tra xem có message trong data không
-      if (!data.message) {
-        console.error('❌ No message in data:', data)
-        return
-      }
-      
+      // Data is already the message object from raw WebSocket
+      if (!data) return
+
       // FIX: Normalize messageId ngay từ đầu để check duplicate
-      const messageId = String(data.message.messageId || '')
-      
+      const messageId = String(data.messageId || '')
+
       // FIX: Kiểm tra duplicate NGAY LẦN ĐẦU (trước khi xử lý logic phức tạp)
-      // Đây là defense layer đầu tiên để chặn duplicate do race condition
       if (messageId && !messageId.startsWith('temp_')) {
-        // Kiểm tra xem messageId này đang được xử lý không (lock mechanism)
         if (processingMessagesRef.current.has(messageId)) {
           return // Bỏ qua message này hoàn toàn
         }
-        
+
         // Đánh dấu messageId đang được xử lý
         processingMessagesRef.current.add(messageId)
-        
+
         // Cleanup sau 1 giây (đảm bảo không bị stuck)
         setTimeout(() => {
           processingMessagesRef.current.delete(messageId)
         }, 1000)
       }
-      
+
       // Lấy selectedConversation hiện tại từ ref (luôn là giá trị mới nhất)
       const current = selectedConversationRef.current
       const currentConversationId = current?.conversationId || current?._id
-      
+
+      // Generate conversation ID if not provided
+      const conversationId = data.conversationId || generateConversationId(data.fromUser?.userId, data.toUser?.userId)
+
       // Kiểm tra xem tin nhắn này có thuộc conversation hiện tại không
-      const isForCurrentConversation = data.conversationId === currentConversationId
-      
+      const isForCurrentConversation = conversationId === currentConversationId
+
       if (!isForCurrentConversation && current) {
         // Cập nhật conversation list nếu có tin nhắn mới từ conversation khác
-        // TODO: Cập nhật conversation list để hiển thị unread count
         return
       }
-      
+
       // Nếu không có conversation được chọn, không hiển thị message
       if (!current) {
         return
       }
-      
+
       // FIX: Đơn giản hóa - loại bỏ phân biệt role, chỉ dùng userId
-      const isFromCurrentUser = data.message?.fromUser?.userId?.toString() === user?._id?.toString()
-      
-      // Kiểm tra xem tin nhắn này có phải là tin nhắn temp không (từ socket - không nên xảy ra)
-      const isTempMessage = data.message?.messageId?.startsWith('temp_')
+      const isFromCurrentUser = data.fromUser?.userId?.toString() === user?._id?.toString()
+
+      // Kiểm tra xem tin nhắn này có phải là tin nhắn temp không
+      const isTempMessage = data.messageId?.startsWith('temp_')
       if (isTempMessage) {
         return
       }
 
       setMessages(prev => {
         // Normalize messageId để so sánh (convert về string)
-        const newMessageId = String(data.message.messageId || '')
-        
-        // BƯỚC 1: Kiểm tra duplicate dựa trên messageId (CHÍNH XÁC NHẤT) - PHẢI LÀM TRƯỚC
-        // FIX: Kiểm tra trong Set trước (O(1)) - nhanh nhất
+        const newMessageId = String(data.messageId || '')
+
+        // BƯỚC 1: Kiểm tra duplicate dựa trên messageId (CHÍNH XÁC NHẤT)
         if (newMessageId && !newMessageId.startsWith('temp_')) {
           if (messageIdsSetRef.current.has(newMessageId)) {
             processingMessagesRef.current.delete(newMessageId)
             return prev
           }
         }
-        
+
         // FIX: Kiểm tra duplicate trong state array (fallback)
-        // QUAN TRỌNG: Normalize cả 2 messageId về string để so sánh chính xác
         const exists = prev.some(msg => {
           const msgId = String(msg.messageId || '')
-          // Chỉ kiểm tra real messages (không phải temp)
           if (msgId.startsWith('temp_')) return false
           if (msgId === '' || newMessageId === '') return false
-          
-          // So sánh sau khi normalize cả 2 về string
           return msgId === newMessageId
         })
-        
+
         if (exists) {
-          // FIX: Thêm vào Set để tránh check lại lần sau
           if (newMessageId && !newMessageId.startsWith('temp_')) {
             messageIdsSetRef.current.add(newMessageId)
             processingMessagesRef.current.delete(newMessageId)
           }
           return prev
         }
-        
-        // BƯỚC 2: Thay thế temp message nếu có (cho user gửi message)
-        // FIX: Đơn giản hóa - chỉ check text và fromUser userId
+
+        // BƯỚC 2: Thay thế temp message nếu có
         const tempMessageIndex = prev.findIndex(msg => {
-          // Chỉ xử lý temp messages
           if (!String(msg.messageId || '').startsWith('temp_')) return false
-          
-          // Match đơn giản: text và fromUser userId giống nhau
-          const textMatch = String(msg.text || '') === String(data.message.text || '')
-          const isFromSameUser = String(msg.fromUser?.userId || '') === String(data.message.fromUser?.userId || '')
-          
+
+          const textMatch = String(msg.text || '') === String(data.text || '')
+          const isFromSameUser = String(msg.fromUser?.userId || '') === String(data.fromUser?.userId || '')
+
           return textMatch && isFromSameUser
         })
-        
+
         if (tempMessageIndex !== -1) {
           const newMessages = [...prev]
-          newMessages[tempMessageIndex] = data.message
-          
-          // FIX: Thêm messageId vào Set sau khi thay thế
+          newMessages[tempMessageIndex] = data
+
           if (newMessageId && !newMessageId.startsWith('temp_')) {
             messageIdsSetRef.current.add(newMessageId)
             processingMessagesRef.current.delete(newMessageId)
           }
-          
+
           return newMessages
         }
-        
-        // BƯỚC 3: Kiểm tra duplicate dựa trên content và timestamp (fallback)
-        // FIX: Đơn giản hóa - chỉ check text, fromUser userId, và timestamp
-        const duplicateIndex = prev.findIndex(msg => {
-          const msgId = String(msg.messageId || '')
-          // Bỏ qua temp messages
-          if (msgId.startsWith('temp_')) return false
-          
-          // Match chính xác: text, fromUser userId, và timestamp rất gần nhau (< 1 giây)
-          const textMatch = String(msg.text || '') === String(data.message.text || '')
-          const isFromSameUser = String(msg.fromUser?.userId || '') === String(data.message.fromUser?.userId || '')
-          
-          // Timestamp phải rất gần nhau (< 1 giây) để chắc chắn là duplicate
-          const timeDiff = Math.abs(
-            new Date(data.message.timestamp).getTime() - new Date(msg.timestamp).getTime()
-          )
-          const isVeryClose = timeDiff < 1000 // 1 giây
-          
-          return textMatch && isFromSameUser && isVeryClose
-        })
-        
-        if (duplicateIndex !== -1) {
-          // FIX: Thêm vào Set để tránh check lại
-          if (newMessageId && !newMessageId.startsWith('temp_')) {
-            messageIdsSetRef.current.add(newMessageId)
-            processingMessagesRef.current.delete(newMessageId)
-          }
-          return prev
-        }
-        
-        // BƯỚC 4: Thêm message mới nếu không tìm thấy duplicate
-        // FIX: Thêm messageId vào Set TRƯỚC khi thêm vào state (để tránh race condition)
+
+        // BƯỚC 3: Thêm message mới
         if (newMessageId && !newMessageId.startsWith('temp_')) {
           messageIdsSetRef.current.add(newMessageId)
           processingMessagesRef.current.delete(newMessageId)
         }
-        
-        return [...prev, data.message]
+
+        return [...prev, data]
       })
-      
+
       // Scroll to bottom sau khi thêm message
       setTimeout(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
       }, 100)
     }
 
-    const handleUserTyping = (data) => {
-      if (data.userId !== user?._id) {
-        setTypingUsers(prev => {
-          const filtered = prev.filter(u => u.userId !== data.userId)
-          if (data.isTyping) {
-            return [...filtered, { userId: data.userId, userName: data.userName }]
-          }
-          return filtered
-        })
-      }
-    }
-
-    const handleUserJoined = (data) => {
-      // Handle user joined
-    }
-
-    const handleUserLeft = (data) => {
-      // Handle user left
-    }
-
-    socket.on('new_message', handleNewMessage)
-    socket.on('user_typing_conversation', handleUserTyping)
-    socket.on('user_joined_conversation', handleUserJoined)
-    socket.on('user_left_conversation', handleUserLeft)
+    // Add message handler to chat service
+    chatService.onMessage(handleNewMessage)
 
     return () => {
-      // FIX: Cleanup socket event listeners khi component unmount hoặc dependencies thay đổi
-      socket.off('new_message', handleNewMessage)
-      socket.off('user_typing_conversation', handleUserTyping)
-      socket.off('user_joined_conversation', handleUserJoined)
-      socket.off('user_left_conversation', handleUserLeft)
+      chatService.offMessage(handleNewMessage)
     }
-  }, [socket, user]) // FIX: Không thêm selectedConversation vào deps để tránh re-subscribe (sử dụng ref)
+  }, [connected, user])
 
   // Auto scroll to bottom - FIX: Chỉ scroll khi thực sự cần thiết
   const scrollToBottom = () => {
@@ -406,7 +356,7 @@ const ChatsPage = () => {
 
   const handleSendMessage = async (e) => {
     e.preventDefault()
-    if (!newMessage.trim() || !socket || !selectedConversation) return
+    if (!newMessage.trim() || !connected || !selectedConversation) return
 
     try {
       // FIX: Đơn giản hóa - loại bỏ phân biệt role, chỉ dùng userId
@@ -437,21 +387,19 @@ const ChatsPage = () => {
       setMessages(prev => [...prev, tempMessage])
       scrollToBottom()
 
-      // Send via socket for real-time
+      // Send via WebSocket
       const convId = selectedConversation.conversationId || selectedConversation._id
-      socket.emit('send_message', {
-        conversationId: convId,
-        content: newMessage.trim(),
-        messageType: 'text'
-      })
+      const targetUserId = selectedConversation.user?.userId
+      if (targetUserId) {
+        chatService.sendMessage(targetUserId, newMessage.trim())
+      } else {
+        chatService.sendToAdmin(newMessage.trim())
+      }
 
       setNewMessage('')
       
       // Stop typing indicator
-      if (socket) {
-        const convId = selectedConversation.conversationId || selectedConversation._id
-        socket.emit('typing_stop', { conversationId: convId })
-      }
+      // typing events not implemented for STOMP here
     } catch (error) {
       console.error('Error sending message:', error)
       alert('Có lỗi xảy ra khi gửi tin nhắn!')
@@ -512,14 +460,14 @@ const ChatsPage = () => {
       setMessages(prev => [...prev, tempImageMessage])
       scrollToBottom()
 
-      // Send image message via socket
+      // Send image message via WebSocket
       const convId = selectedConversation.conversationId || selectedConversation._id
-      socket.emit('send_message', {
-        conversationId: convId,
-        content: 'Đã gửi ảnh',
-        messageType: 'image',
-        imageUrl: imageUrl
-      })
+      const targetUserId = selectedConversation.user?.userId
+      if (targetUserId) {
+        chatService.sendMessage(targetUserId, 'Đã gửi ảnh', { messageType: 'image', imageUrl })
+      } else {
+        chatService.sendToAdmin('Đã gửi ảnh', { messageType: 'image', imageUrl })
+      }
 
       // Clear file input
       if (fileInputRef.current) {
@@ -537,7 +485,7 @@ const ChatsPage = () => {
   const handleTyping = (e) => {
     setNewMessage(e.target.value)
     
-    if (!socket || !selectedConversation) return
+    if (!connected || !selectedConversation) return
 
     // Clear existing timeout
     if (typingTimeoutRef.current) {
@@ -547,15 +495,13 @@ const ChatsPage = () => {
     // Start typing indicator
     if (!isTyping) {
       setIsTyping(true)
-      const convId = selectedConversation.conversationId || selectedConversation._id
-      socket.emit('typing_start', { conversationId: convId })
+      // typing events not implemented for STOMP here
     }
 
     // Stop typing indicator after 2 seconds of inactivity
     typingTimeoutRef.current = setTimeout(() => {
       setIsTyping(false)
-      const convId = selectedConversation.conversationId || selectedConversation._id
-      socket.emit('typing_stop', { conversationId: convId })
+      // typing events not implemented for STOMP here
     }, 2000)
   }
 
@@ -594,9 +540,9 @@ const ChatsPage = () => {
                     {conversations.length} cuộc trò chuyện
                   </div>
                   <div className="flex items-center space-x-2">
-                    <div className={`w-3 h-3 rounded-full ${socket?.connected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                    <div className={`w-3 h-3 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`}></div>
                     <span className="text-sm text-gray-500">
-                      {socket?.connected ? 'Đã kết nối' : 'Mất kết nối'}
+                      {connected ? 'Đã kết nối' : 'Mất kết nối'}
                     </span>
                   </div>
                 </div>
@@ -727,6 +673,80 @@ const ChatsPage = () => {
                               }`}>
                                 {formatTime(message.timestamp)}
                               </p>
+                      {/* Edit / Delete actions for admin */}
+                      <div className="mt-1 flex items-center space-x-2">
+                        {editingMessageId === (message.messageId || message._id) ? (
+                          <>
+                            <input
+                              value={editingText}
+                              onChange={(e) => setEditingText(e.target.value)}
+                              className="text-sm px-2 py-1 border rounded"
+                            />
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const id = message.messageId || message._id
+                                  const res = await messageAPI.updateMessage(id, { text: editingText })
+                                  // try to read updated message from response, fallback to local update
+                                  const updated = res?.data?.data || res?.data || null
+                                  setMessages(prev => prev.map(m => {
+                                    const mid = m.messageId || m._id
+                                    if (String(mid) === String(id)) {
+                                      return updated ? { ...m, ...updated } : { ...m, text: editingText }
+                                    }
+                                    return m
+                                  }))
+                                  setEditingMessageId(null)
+                                  setEditingText('')
+                                } catch (e) {
+                                  console.error('Failed to update message', e)
+                                  alert('Không thể chỉnh sửa tin nhắn')
+                                }
+                              }}
+                              className="text-xs text-green-600 hover:underline"
+                            >
+                              Lưu
+                            </button>
+                            <button
+                              onClick={() => { setEditingMessageId(null); setEditingText('') }}
+                              className="text-xs text-gray-600 hover:underline"
+                            >
+                              Hủy
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => {
+                                const id = message.messageId || message._id
+                                setEditingMessageId(id)
+                                setEditingText(message.text || '')
+                              }}
+                              className="text-xs text-blue-600 hover:underline"
+                            >
+                              Chỉnh sửa
+                            </button>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const id = message.messageId || message._id
+                                  await messageAPI.deleteMessage(id)
+                                  setMessages(prev => prev.filter(m => (m.messageId || m._id) !== id))
+                                  if (id && !String(id).startsWith('temp_')) {
+                                    messageIdsSetRef.current.delete(String(id))
+                                  }
+                                } catch (e) {
+                                  console.error('Failed to delete message', e)
+                                  alert('Không thể xóa tin nhắn')
+                                }
+                              }}
+                              className="text-xs text-red-500 hover:underline ml-2"
+                            >
+                              Xóa
+                            </button>
+                          </>
+                        )}
+                      </div>
                             </div>
                           </div>
                         )
@@ -756,7 +776,7 @@ const ChatsPage = () => {
                       onChange={handleTyping}
                       placeholder="Nhập tin nhắn..."
                       className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      disabled={!socket?.connected || uploadingImage}
+                      disabled={!connected || uploadingImage}
                     />
                     <input
                       ref={fileInputRef}
@@ -764,12 +784,12 @@ const ChatsPage = () => {
                       accept="image/*"
                       onChange={handleImageUpload}
                       className="hidden"
-                      disabled={!socket?.connected || uploadingImage}
+                      disabled={!connected || uploadingImage}
                     />
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      disabled={!socket?.connected || uploadingImage}
+                      disabled={!connected || uploadingImage}
                       className="px-3 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
                       title="Gửi ảnh"
                     >
@@ -781,7 +801,7 @@ const ChatsPage = () => {
                     </button>
                     <button
                       type="submit"
-                      disabled={!newMessage.trim() || !socket?.connected || uploadingImage}
+                      disabled={!newMessage.trim() || !connected || uploadingImage}
                       className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Gửi

@@ -31,8 +31,9 @@ public class ShippingProvider {
     @Column(name = "estimated_time", nullable = false, length = 50)
     private String estimatedTime;
 
-    @Column(nullable = false)
-    private Boolean active = true;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    private Status status = Status.ACTIVE;
 
     @Column(length = 500)
     private String description;
@@ -64,6 +65,10 @@ public class ShippingProvider {
 
         @Column(length = 200)
         private String website;
+    }
+
+    public enum Status {
+        ACTIVE, DISABLED
     }
 }
 
