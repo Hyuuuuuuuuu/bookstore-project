@@ -365,7 +365,7 @@ export const voucherAPI = {
     axiosClient.get('/vouchers', { params }),
 
   // Get voucher by ID
-  getVoucher: (id) =>
+  getVoucherById: (id) =>
     axiosClient.get(`/vouchers/${id}`),
 
   // Get voucher by code
