@@ -13,7 +13,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
 import java.util.Map;
 
 @RestController
@@ -25,8 +24,6 @@ public class OrderController {
 
     /**
      * Tạo đơn hàng mới
-     * POST /api/orders
-     * Yêu cầu: JWT Token
      */
     @PostMapping
     public ResponseEntity<ApiResponse<OrderResponseDTO>> createOrder(@RequestBody CreateOrderRequest request) {
@@ -38,8 +35,6 @@ public class OrderController {
 
     /**
      * Lấy danh sách đơn hàng của user hiện tại
-     * GET /api/orders/my-orders
-     * Yêu cầu: JWT Token
      */
     @GetMapping("/my-orders")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getUserOrders(
@@ -53,24 +48,23 @@ public class OrderController {
 
     /**
      * Lấy tất cả đơn hàng (Admin only)
-     * GET /api/orders
-     * Yêu cầu: JWT Token (Admin)
+     * Thêm tham số search vào đây
      */
     @GetMapping
     public ResponseEntity<ApiResponse<Map<String, Object>>> getAllOrders(
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) String search, // Param search mới
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Long userId) {
-        // TODO: Check admin role
-        Map<String, Object> data = orderService.getAllOrders(page, limit, status, userId);
+        
+        // TODO: Check admin role (Spring Security handles this mostly)
+        Map<String, Object> data = orderService.getAllOrders(page, limit, search, status, userId);
         return ResponseEntity.ok(new ApiResponse<>(200, data, "All orders retrieved successfully"));
     }
 
     /**
      * Lấy chi tiết đơn hàng
-     * GET /api/orders/:orderId
-     * Yêu cầu: JWT Token
      */
     @GetMapping("/{orderId}")
     public ResponseEntity<ApiResponse<OrderResponseDTO>> getOrderById(@PathVariable Long orderId) {
@@ -83,8 +77,6 @@ public class OrderController {
 
     /**
      * Hủy đơn hàng
-     * PATCH /api/orders/:orderId/cancel
-     * Yêu cầu: JWT Token
      */
     @PatchMapping("/{orderId}/cancel")
     public ResponseEntity<ApiResponse<OrderResponseDTO>> cancelOrder(@PathVariable Long orderId) {
@@ -95,14 +87,12 @@ public class OrderController {
 
     /**
      * Cập nhật trạng thái đơn hàng (Admin only)
-     * PATCH /api/orders/admin/:orderId/status
-     * Yêu cầu: JWT Token (Admin)
      */
     @PatchMapping("/admin/{orderId}/status")
     public ResponseEntity<ApiResponse<OrderResponseDTO>> updateOrderStatus(
             @PathVariable Long orderId,
             @RequestBody Map<String, String> request) {
-        // TODO: Check admin role
+        
         String status = request.get("status");
         if (status == null || status.trim().isEmpty()) {
             throw new AppException("Status is required", 400);
@@ -112,9 +102,6 @@ public class OrderController {
         return ResponseEntity.ok(new ApiResponse<>(200, order, "Order status updated successfully"));
     }
 
-    /**
-     * Helper method để lấy user hiện tại từ SecurityContext
-     */
     private User getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || 
@@ -125,4 +112,3 @@ public class OrderController {
         return (User) authentication.getPrincipal();
     }
 }
-

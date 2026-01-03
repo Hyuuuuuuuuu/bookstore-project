@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
@@ -34,14 +35,21 @@ public class PaymentService {
             .filter(o -> !o.getIsDeleted())
             .orElseThrow(() -> new AppException("Order not found", 404));
 
+        // Kiểm tra xem đã có payment nào chưa
+        Optional<Payment> existingPayment = paymentRepository.findAll().stream()
+            .filter(p -> p.getOrder().getId().equals(orderId))
+            .findFirst();
+            
+        if (existingPayment.isPresent()) {
+            return PaymentResponseDTO.fromEntity(existingPayment.get());
+        }
+
         Payment payment = new Payment();
         payment.setOrder(order);
         payment.setAmount(amount != null ? amount : order.getTotalPrice());
         payment.setMethod(Payment.PaymentMethod.COD);
         payment.setStatus(Payment.PaymentStatus.PENDING);
-        payment.setDescription(description != null ? description : "Payment for order " + order.getOrderCode());
-        
-        // Generate transaction code
+        payment.setDescription(description != null ? description : "Thanh toán khi nhận hàng cho đơn " + order.getOrderCode());
         payment.setTransactionCode(generateTransactionCode());
         
         payment = paymentRepository.save(payment);
@@ -50,48 +58,144 @@ public class PaymentService {
     }
 
     /**
-     * Lấy danh sách payments (Admin)
+     * Tạo URL thanh toán Online (VNPay/MoMo - Mock Logic)
+     */
+    @Transactional
+    public Map<String, Object> createOnlinePaymentUrl(Long orderId, String method, Double amount, String ipAddress) {
+        Order order = orderRepository.findById(orderId)
+            .filter(o -> !o.getIsDeleted())
+            .orElseThrow(() -> new AppException("Order not found", 404));
+
+        Payment.PaymentMethod paymentMethod;
+        try {
+            paymentMethod = Payment.PaymentMethod.valueOf(method.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new AppException("Phương thức thanh toán không hỗ trợ", 400);
+        }
+
+        Payment payment = new Payment();
+        payment.setOrder(order);
+        payment.setAmount(amount != null ? amount : order.getTotalPrice());
+        payment.setMethod(paymentMethod);
+        payment.setStatus(Payment.PaymentStatus.PENDING);
+        payment.setDescription("Thanh toán online qua " + method + " cho đơn " + order.getOrderCode());
+        payment.setTransactionCode(generateTransactionCode());
+        
+        Payment.CustomerInfo info = new Payment.CustomerInfo();
+        info.setIpAddress(ipAddress);
+        payment.setCustomerInfo(info);
+
+        payment = paymentRepository.save(payment);
+
+        // Mock URL
+        String mockPaymentUrl = "";
+        if (paymentMethod == Payment.PaymentMethod.VNPAY) {
+            mockPaymentUrl = "http://localhost:5000/api/payments/callback/vnpay?status=success&orderId=" + orderId + "&transId=" + payment.getTransactionCode();
+        } else if (paymentMethod == Payment.PaymentMethod.MOMO) {
+            mockPaymentUrl = "http://localhost:5000/api/payments/callback/momo?status=success&orderId=" + orderId + "&transId=" + payment.getTransactionCode();
+        } else {
+            mockPaymentUrl = "http://localhost:3000/payment-success?orderId=" + orderId;
+        }
+        
+        payment.setPaymentUrl(mockPaymentUrl);
+        paymentRepository.save(payment);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("paymentUrl", mockPaymentUrl);
+        response.put("transactionCode", payment.getTransactionCode());
+        return response;
+    }
+
+    /**
+     * Xử lý Callback
+     */
+    @Transactional
+    public PaymentResponseDTO handlePaymentCallback(String transactionCode, boolean isSuccess, String gatewayResponse) {
+        Payment payment = paymentRepository.findByTransactionCode(transactionCode)
+            .orElseThrow(() -> new AppException("Payment transaction not found", 404));
+
+        if (payment.getStatus() == Payment.PaymentStatus.COMPLETED) {
+            return PaymentResponseDTO.fromEntity(payment);
+        }
+
+        if (isSuccess) {
+            payment.setStatus(Payment.PaymentStatus.COMPLETED);
+            payment.setGatewayResponse(gatewayResponse);
+            
+            Order order = payment.getOrder();
+            order.setPaymentStatus(Order.PaymentStatus.COMPLETED);
+            order.setPaidAt(LocalDateTime.now());
+            orderRepository.save(order);
+        } else {
+            payment.setStatus(Payment.PaymentStatus.FAILED);
+            payment.setGatewayResponse(gatewayResponse);
+        }
+
+        payment = paymentRepository.save(payment);
+        return PaymentResponseDTO.fromEntity(payment);
+    }
+
+    /**
+     * Cập nhật trạng thái thanh toán thủ công (Admin)
+     */
+    @Transactional
+    public PaymentResponseDTO updatePaymentStatus(Long paymentId, String status) {
+        Payment payment = paymentRepository.findById(paymentId)
+            .orElseThrow(() -> new AppException("Payment not found", 404));
+
+        try {
+            Payment.PaymentStatus newStatus = Payment.PaymentStatus.valueOf(status.toUpperCase());
+            payment.setStatus(newStatus);
+            
+            if (newStatus == Payment.PaymentStatus.COMPLETED) {
+                Order order = payment.getOrder();
+                order.setPaymentStatus(Order.PaymentStatus.COMPLETED);
+                order.setPaidAt(LocalDateTime.now());
+                orderRepository.save(order);
+            }
+            
+            payment = paymentRepository.save(payment);
+            return PaymentResponseDTO.fromEntity(payment);
+        } catch (IllegalArgumentException e) {
+            throw new AppException("Invalid payment status", 400);
+        }
+    }
+
+    /**
+     * Lấy danh sách payments (Admin) - CÓ SEARCH
      */
     @Transactional(readOnly = true)
-    public Map<String, Object> getPayments(Integer page, Integer limit, String status, String method) {
+    public Map<String, Object> getPayments(Integer page, Integer limit, String search, String status, String method) {
         Pageable pageable = PageRequest.of(
             page != null && page > 0 ? page - 1 : 0,
             limit != null && limit > 0 ? limit : 10,
             Sort.by(Sort.Direction.DESC, "createdAt")
         );
 
-        // Filter logic có thể được thêm vào repository nếu cần
-        Page<Payment> paymentsPage = paymentRepository.findAll(pageable);
-        
-        // Filter by status and method if provided
-        List<Payment> filteredPayments = paymentsPage.getContent();
-        if (status != null && !status.trim().isEmpty()) {
+        Payment.PaymentStatus paymentStatus = null;
+        if (status != null && !status.trim().isEmpty() && !status.equals("all")) {
             try {
-                Payment.PaymentStatus paymentStatus = Payment.PaymentStatus.valueOf(status.toUpperCase());
-                filteredPayments = filteredPayments.stream()
-                    .filter(p -> p.getStatus() == paymentStatus)
-                    .toList();
-            } catch (IllegalArgumentException e) {
-                filteredPayments = List.of();
-            }
-        }
-        if (method != null && !method.trim().isEmpty()) {
-            try {
-                Payment.PaymentMethod paymentMethod = Payment.PaymentMethod.valueOf(method.toUpperCase());
-                filteredPayments = filteredPayments.stream()
-                    .filter(p -> p.getMethod() == paymentMethod)
-                    .toList();
-            } catch (IllegalArgumentException e) {
-                filteredPayments = List.of();
-            }
+                paymentStatus = Payment.PaymentStatus.valueOf(status.toUpperCase());
+            } catch (IllegalArgumentException ignored) {}
         }
 
-        List<PaymentResponseDTO> paymentDTOs = filteredPayments.stream()
+        Payment.PaymentMethod paymentMethod = null;
+        if (method != null && !method.trim().isEmpty() && !method.equals("all")) {
+            try {
+                paymentMethod = Payment.PaymentMethod.valueOf(method.toUpperCase());
+            } catch (IllegalArgumentException ignored) {}
+        }
+
+        // Sử dụng searchPayments từ Repository
+        Page<Payment> paymentsPage = paymentRepository.searchPayments(search, paymentStatus, paymentMethod, pageable);
+
+        List<PaymentResponseDTO> paymentDTOs = paymentsPage.getContent().stream()
             .map(PaymentResponseDTO::fromEntity)
             .toList();
 
         Map<String, Object> data = new HashMap<>();
         data.put("payments", paymentDTOs);
+        
         Map<String, Object> pagination = new HashMap<>();
         pagination.put("page", paymentsPage.getNumber() + 1);
         pagination.put("limit", paymentsPage.getSize());
@@ -102,9 +206,6 @@ public class PaymentService {
         return data;
     }
 
-    /**
-     * Lấy payment theo ID
-     */
     @Transactional(readOnly = true)
     public PaymentResponseDTO getPaymentById(Long paymentId) {
         Payment payment = paymentRepository.findById(paymentId)
@@ -112,9 +213,6 @@ public class PaymentService {
         return PaymentResponseDTO.fromEntity(payment);
     }
 
-    /**
-     * Lấy payment theo transactionCode
-     */
     @Transactional(readOnly = true)
     public PaymentResponseDTO getPaymentByTransactionCode(String transactionCode) {
         Payment payment = paymentRepository.findByTransactionCode(transactionCode)
@@ -122,17 +220,10 @@ public class PaymentService {
         return PaymentResponseDTO.fromEntity(payment);
     }
 
-    /**
-     * Tạo transaction code: PAY-YYYYMMDD-XXX
-     */
     private String generateTransactionCode() {
         String dateStr = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-        
-        // Đếm số payments đã tạo trong ngày
         long count = paymentRepository.count();
-        String sequence = String.format("%03d", (count % 1000) + 1);
-        
+        String sequence = String.format("%04d", (count % 10000) + 1);
         return "PAY-" + dateStr + "-" + sequence;
     }
 }
-

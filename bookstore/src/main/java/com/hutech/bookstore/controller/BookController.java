@@ -26,10 +26,11 @@ public class BookController {
             @RequestParam(required = false) Double maxPrice,
             @RequestParam(required = false) String stock,
             @RequestParam(required = false, defaultValue = "createdAt") String sortBy,
-            @RequestParam(required = false, defaultValue = "desc") String sortOrder) {
+            @RequestParam(required = false, defaultValue = "desc") String sortOrder,
+            @RequestParam(required = false) Boolean includeInactive) { // Param mới cho Admin
         
         Map<String, Object> data = bookService.getBooks(
-            page, limit, search, categoryId, minPrice, maxPrice, stock, sortBy, sortOrder
+            page, limit, search, categoryId, minPrice, maxPrice, stock, sortBy, sortOrder, includeInactive
         );
         
         return ResponseEntity.ok(new ApiResponse<>(200, data, "Books retrieved successfully"));
@@ -60,5 +61,14 @@ public class BookController {
         BookResponseDTO created = bookService.createBook(payload);
         return ResponseEntity.status(201).body(ApiResponse.created(created, "Book created successfully"));
     }
+    
+    /**
+     * Xóa sách (Admin)
+     * DELETE /api/books/{id}
+     */
+    @DeleteMapping("/{id}")
+    public ResponseEntity<ApiResponse<String>> deleteBook(@PathVariable Long id) {
+        bookService.deleteBook(id);
+        return ResponseEntity.ok(ApiResponse.success("Book deleted successfully", "Book deleted successfully"));
+    }
 }
-

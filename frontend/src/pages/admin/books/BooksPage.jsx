@@ -6,47 +6,69 @@ const BooksPage = () => {
   const navigate = useNavigate();
   const [books, setBooks] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(true);
+  
+  // Loading state
+  const [loading, setLoading] = useState(false);
+  
+  // Search & Filter states
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterCategory, setFilterCategory] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [filterCategoryId, setFilterCategoryId] = useState('');
+  const [filterStock, setFilterStock] = useState(''); // 'inStock', 'outOfStock', 'lowStock'
+  
   const [currentPage, setCurrentPage] = useState(1);
   const [booksPerPage] = useState(15);
-  const [viewMode, setViewMode] = useState('table'); // 'table' or 'card'
+  const [pagination, setPagination] = useState({ totalItems: 0, totalPages: 1 });
+  const [viewMode, setViewMode] = useState('table');
 
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Fetch Data
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        // Fetch books and categories in parallel
-        const bookParams = {
-          search: searchTerm,
-          category: filterCategory !== 'all' ? filterCategory : undefined
+        const params = {
+          page: currentPage,
+          limit: booksPerPage,
+          search: debouncedSearchTerm,
+          categoryId: filterCategoryId || undefined,
+          stock: filterStock || undefined,
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+          includeInactive: true // QUAN TRỌNG: Để Admin thấy cả sách hết hàng/ẩn
         };
-        // If admin filters for inStock, use backend stock param
-        if (filterStatus === 'inStock') {
-          bookParams.stock = 'inStock';
-        }
+
         const [booksResponse, categoriesResponse] = await Promise.all([
-          bookAPI.getBooks(bookParams),
+          bookAPI.getBooks(params),
           categoryAPI.getCategories()
         ]);
 
-        console.log('📚 BooksPage API Response:', booksResponse);
-        console.log('📂 CategoriesPage API Response:', categoriesResponse);
+        const booksData = booksResponse?.data?.data?.books || booksResponse?.data?.books || [];
+        const pagingData = booksResponse?.data?.data?.pagination || { totalItems: 0, totalPages: 1 };
+        
+        setBooks(booksData);
+        setPagination(pagingData);
 
-        setBooks(booksResponse?.data?.data?.books || booksResponse?.data?.books || booksResponse?.data || []);
-        setCategories(categoriesResponse?.data?.data?.categories || categoriesResponse?.data?.categories || categoriesResponse?.data || []);
-        setLoading(false);
+        const catsData = categoriesResponse?.data?.data?.categories || categoriesResponse?.data?.categories || [];
+        setCategories(catsData);
+
       } catch (error) {
         console.error('Error fetching data:', error);
         setBooks([]);
-        setCategories([]);
+      } finally {
         setLoading(false);
       }
     };
+
     fetchData();
-  }, [currentPage, searchTerm, filterCategory, filterStatus]);
+  }, [currentPage, debouncedSearchTerm, filterCategoryId, filterStock]); 
 
   const handleBookAction = async (bookId, action) => {
     try {
@@ -57,16 +79,16 @@ const BooksPage = () => {
         case 'delete':
           if (window.confirm('Bạn có chắc chắn muốn xóa sách này?')) {
             await bookAPI.deleteBook(bookId);
-            const booksResponse = await bookAPI.getBooks();
-            setBooks(booksResponse?.data?.data?.books || booksResponse?.data?.books || booksResponse?.data || []);
+            alert('Xóa sách thành công!');
+            setBooks(prev => prev.filter(b => (b._id || b.id) !== bookId));
           }
           break;
         default:
-          console.log(`Action ${action} for book ${bookId}`);
+          break;
       }
     } catch (error) {
       console.error(`Error ${action} book:`, error);
-      alert(`Lỗi khi ${action === 'delete' ? 'xóa' : 'thực hiện'} sách. Vui lòng thử lại.`);
+      alert(`Lỗi khi thực hiện thao tác. Vui lòng thử lại.`);
     }
   };
 
@@ -77,398 +99,274 @@ const BooksPage = () => {
     }).format(amount);
   };
 
-  const getStatusColor = (status, stock) => {
-    const s = (status || '').toLowerCase();
-    // Nếu stock = 0 thì hiển thị màu đỏ
-    if ((stock || 0) === 0) return 'bg-red-100 text-red-800';
-
-    switch (s) {
-      case 'available': return 'bg-green-100 text-green-800';
-      case 'out_of_stock': return 'bg-yellow-100 text-yellow-800';
-      case 'discontinued': return 'bg-red-100 text-red-800';
-      case 'coming_soon': return 'bg-blue-100 text-blue-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
+  const getStatusInfo = (book) => {
+    const stock = book.stock || 0;
+    // Status hiển thị trên UI
+    if (!book.isActive) return { text: 'Ngừng kinh doanh', color: 'bg-red-100 text-red-800' };
+    if (stock === 0) return { text: 'Hết hàng', color: 'bg-gray-100 text-gray-800' };
+    if (stock < 10) return { text: 'Sắp hết', color: 'bg-yellow-100 text-yellow-800' };
+    return { text: 'Có sẵn', color: 'bg-green-100 text-green-800' };
   };
 
-  const getStatusText = (status, stock) => {
-    const s = (status || '').toLowerCase();
-    // Nếu stock = 0 thì hiển thị "Hết hàng" bất kể status
-    if ((stock || 0) === 0) return 'Hết hàng';
-
-    switch (s) {
-      case 'available': return 'Có sẵn';
-      case 'out_of_stock': return 'Hết hàng';
-      case 'discontinued': return 'Ngừng bán';
-      case 'coming_soon': return 'Sắp ra mắt';
-      default: return 'Không xác định';
-    }
+  const clearFilters = () => {
+    setSearchTerm('');
+    setFilterCategoryId('');
+    setFilterStock('');
+    setCurrentPage(1);
   };
 
-  const getStockColor = (stock) => {
-    if (stock === 0) return 'text-red-600';
-    if (stock < 10) return 'text-yellow-600';
-    return 'text-green-600';
-  };
+  return (
+    <div className="space-y-6">
+      <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Search Input */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Tìm kiếm</label>
+            <input
+              type="text"
+              placeholder="Tìm kiếm sách..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
 
-  const filteredBooks = Array.isArray(books) ? books.filter(book => {
-    const matchesSearch = book?.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      book?.author?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = filterCategory === 'all' || book?.categoryId?.name === filterCategory;
-
-    // Kiểm tra status, nếu stock = 0 thì coi như out_of_stock
-    const actualStatus = (book?.stock || 0) === 0 ? 'out_of_stock' : book?.status;
-    const matchesStatus = filterStatus === 'all' || actualStatus === filterStatus;
-
-    return matchesSearch && matchesCategory && matchesStatus;
-  }) : [];
-
-  const indexOfLastBook = currentPage * booksPerPage;
-  const indexOfFirstBook = indexOfLastBook - booksPerPage;
-  const currentBooks = Array.isArray(filteredBooks) ? filteredBooks.slice(indexOfFirstBook, indexOfLastBook) : [];
-  const totalPages = Math.ceil((Array.isArray(filteredBooks) ? filteredBooks.length : 0) / booksPerPage);
-
-  const handlePageChange = (pageNumber) => {
-    setCurrentPage(pageNumber);
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-        <p className="ml-4">Đang tải sách...</p>
-      </div>
-    );
-  }
-
-  // Debug: Log current state
-  console.log('📚 BooksPage - Loading:', loading, 'Books count:', books.length);
-  console.log('📚 BooksPage - Books:', books);
-  console.log('📚 BooksPage - FilteredBooks:', filteredBooks);
-  console.log('📚 BooksPage - CurrentBooks:', currentBooks);
-
-  try {
-    return (
-      <div className="space-y-6">
-        {/* Action Buttons (moved into filters) */}
-        {/* Filters */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Tìm kiếm</label>
-              <input
-                type="text"
-                placeholder="Tìm kiếm sách..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Danh mục</label>
-              <select
-                value={filterCategory}
-                onChange={(e) => setFilterCategory(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="all">Tất cả</option>
-                {Array.isArray(categories) && categories.map((category) => (
-                  <option key={category._id} value={category.name}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Trạng thái</label>
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="all">Tất cả</option>
-                <option value="inStock">Còn hàng</option>
-                <option value="out_of_stock">Hết hàng</option>
-              </select>
-            </div>
-            <div className="flex items-end justify-end space-x-3">
-            <button
-              onClick={() => {
-                setSearchTerm('');
-                setFilterCategory('all');
-                setFilterStatus('all');
+          {/* Category Filter */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Danh mục</label>
+            <select
+              value={filterCategoryId}
+              onChange={(e) => {
+                setFilterCategoryId(e.target.value);
+                setCurrentPage(1);
               }}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">Tất cả danh mục</option>
+              {categories.map((category) => (
+                <option key={category._id || category.id} value={category._id || category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Status Filter - Updated */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Trạng thái kho</label>
+            <select
+              value={filterStock}
+              onChange={(e) => {
+                setFilterStock(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">Tất cả</option>
+              <option value="inStock">Còn hàng</option>
+              <option value="lowStock">Sắp hết hàng (&lt; 10)</option>
+              <option value="outOfStock">Hết hàng</option>
+            </select>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-end justify-end space-x-3">
+            <button
+              onClick={clearFilters}
               className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
             >
               Xóa bộ lọc
             </button>
             <button
               onClick={() => navigate('/admin/books/create')}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
             >
               Thêm sách mới
             </button>
-            <div className="flex items-center space-x-2">
+            
+            <div className="flex border border-gray-300 rounded-lg overflow-hidden">
               <button
                 onClick={() => setViewMode('table')}
-                className={`p-2 rounded-lg border ${viewMode === 'table' ? 'bg-gray-100 border-gray-300' : 'bg-white border-transparent hover:bg-gray-50'}`}
-                aria-label="Bảng"
-                title="Xem dưới dạng bảng"
+                className={`p-2 ${viewMode === 'table' ? 'bg-gray-100' : 'bg-white hover:bg-gray-50'}`}
+                title="Xem dạng bảng"
               >
-                {/* table icon */}
-                <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7h18M3 12h18M3 17h18M3 4v16" />
                 </svg>
               </button>
               <button
                 onClick={() => setViewMode('card')}
-                className={`p-2 rounded-lg border ${viewMode === 'card' ? 'bg-gray-100 border-gray-300' : 'bg-white border-transparent hover:bg-gray-50'}`}
-                aria-label="Card"
-                title="Xem dưới dạng thẻ"
+                className={`p-2 ${viewMode === 'card' ? 'bg-gray-100' : 'bg-white hover:bg-gray-50'}`}
+                title="Xem dạng lưới"
               >
-                {/* grid/card icon */}
-                <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h7v7H3V3zM14 3h7v7h-7V3zM3 14h7v7H3v-7zM14 14h7v7h-7v-7z" />
+                <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
                 </svg>
               </button>
             </div>
-            </div>
           </div>
         </div>
-        {/* Books Table or Card View with relative positioning for overlay */}
-        <div className="relative">
-          {viewMode === 'table' ? (
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+      </div>
+
+      <div className="relative min-h-[400px]">
+        {loading ? (
+          <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75 z-10">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          </div>
+        ) : null}
+
+        {viewMode === 'table' ? (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tiêu đề</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tác giả</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Danh mục</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Giá</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tồn kho</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trạng thái</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {books.length > 0 ? (
+                  books.map((book) => {
+                    const statusInfo = getStatusInfo(book);
+                    return (
+                      <tr key={book._id || book.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <div className="w-10 h-14 bg-gray-200 rounded flex-shrink-0 overflow-hidden">
+                              {book.imageUrl ? (
+                                <img
+                                  src={book.imageUrl.startsWith('http') ? book.imageUrl : `http://localhost:5000${book.imageUrl}`}
+                                  alt=""
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-xs text-gray-400">No Img</div>
+                              )}
+                            </div>
+                            <div className="ml-4">
+                              <div className="text-sm font-medium text-gray-900 truncate max-w-[200px]" title={book.title}>{book.title}</div>
+                              <div className="text-xs text-gray-500">{book.isbn}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{book.author}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {book.category?.name || book.categoryId?.name || '---'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {formatCurrency(book.price)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{book.stock}</td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusInfo.color}`}>
+                            {statusInfo.text}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          <div className="flex space-x-3">
+                            <button onClick={() => handleBookAction(book._id || book.id, 'view')} className="text-blue-600 hover:text-blue-900">Xem</button>
+                            <button onClick={() => navigate(`/admin/books/update/${book._id || book.id}`)} className="text-green-600 hover:text-green-900">Sửa</button>
+                            <button onClick={() => handleBookAction(book._id || book.id, 'delete')} className="text-red-600 hover:text-red-900">Xóa</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Tiêu đề
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Tác giả
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Danh mục
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Giá
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Tồn kho
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Trạng thái
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Thao tác
-                    </th>
+                    <td colSpan="7" className="px-6 py-8 text-center text-gray-500">
+                      Không tìm thấy sách nào phù hợp.
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {Array.isArray(currentBooks) && currentBooks.length > 0 ? (
-                    currentBooks.map((book) => {
-                      return (
-                        <tr key={book?.id || book?.isbn || Math.random()} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center">
-                              <div className="w-12 h-16 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden">
-                                {book?.imageUrl ? (
-                                  <img
-                                    src={book.imageUrl.startsWith('http') ? book.imageUrl : `http://localhost:5000${book.imageUrl}`}
-                                    alt={book?.title || 'Book cover'}
-                                    className="w-full h-full object-cover"
-                                    onError={(e) => {
-                                      e.target.style.display = 'none';
-                                      e.target.nextSibling.style.display = 'block';
-                                    }}
-                                  />
-                                ) : null}
-                                <span className="text-gray-500 text-xs" style={{ display: book?.imageUrl ? 'none' : 'block' }}>📖</span>
-                              </div>
-                              <div className="ml-4">
-                                <div className="text-sm font-medium text-gray-900">{book?.title || 'N/A'}</div>
-                                <div className="text-sm text-gray-500">ISBN: {book?.isbn || 'N/A'}</div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {book?.author || 'N/A'}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {book?.categoryId?.name || book?.category?.name || 'N/A'}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {formatCurrency(book?.price || 0)}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">
-                            <span className={`font-medium ${getStockColor(book?.stock || 0)}`}>
-                              {book?.stock || 0}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(book?.status, book?.stock || 0)}`}>
-                              {getStatusText(book?.status, book?.stock || 0)}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <div className="flex space-x-2">
-                              <button
-                                onClick={() => handleBookAction(book?._id || book?.id, 'view')}
-                                className="text-blue-600 hover:text-blue-900"
-                              >
-                                Xem
-                              </button>
-                              <button
-                                onClick={() => navigate(`/admin/books/update/${book?._id || book?.id}`)}
-                                className="text-green-600 hover:text-green-900"
-                              >
-                                Sửa
-                              </button>
-                              <button
-                                onClick={() => handleBookAction(book?._id || book?.id, 'delete')}
-                                className="text-red-600 hover:text-red-900"
-                              >
-                                Xóa
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan="7" className="px-6 py-8 text-center text-gray-500">
-                        <div className="flex flex-col items-center">
-                          <svg className="w-12 h-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                          </svg>
-                          <p className="text-lg font-medium text-gray-900 mb-2">Không có sách nào</p>
-                          <p className="text-sm text-gray-500">Hãy thêm sách mới hoặc thử lại sau</p>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            // Card view
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {Array.isArray(currentBooks) && currentBooks.length > 0 ? (
-                currentBooks.map((book) => (
-                  <div key={book?._id || book?.id || Math.random()} className="bg-white rounded-lg shadow p-6 flex items-start">
-                    <div className="flex-shrink-0 bg-gray-100 rounded overflow-hidden flex items-center justify-center" style={{ maxWidth: '160px' }}>
-                      <div className="w-full aspect-[2/3] bg-gray-100">
-                        {book?.imageUrl ? (
-                          <img
-                            src={book.imageUrl.startsWith('http') ? book.imageUrl : `http://localhost:5000${book.imageUrl}`}
-                            alt={book?.title || 'Book cover'}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              e.target.style.display = 'none';
-                            }}
-                          />
-                        ) : (
-                          <div className="text-gray-400 text-4xl flex items-center justify-center h-full">📖</div>
-                        )}
-                      </div>
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          // Grid View
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {books.length > 0 ? (
+              books.map((book) => {
+                const statusInfo = getStatusInfo(book);
+                return (
+                  <div key={book._id || book.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex flex-col">
+                    <div className="aspect-[2/3] w-full bg-gray-100 rounded-md overflow-hidden mb-4 relative group">
+                      {book.imageUrl ? (
+                        <img
+                          src={book.imageUrl.startsWith('http') ? book.imageUrl : `http://localhost:5000${book.imageUrl}`}
+                          alt={book.title}
+                          className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-400">No Image</div>
+                      )}
                     </div>
-                    <div className="ml-4 flex-1">
-                      <h3 className="text-sm font-semibold text-gray-900">{book?.title}</h3>
-                      <p className="text-xs text-gray-500 mt-1">ISBN: {book?.isbn}</p>
-                      <p className="text-sm text-gray-800 mt-2">{formatCurrency(book?.price || 0)}</p>
-                      <div className="mt-2 flex items-center justify-between">
-                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(book?.status, book?.stock || 0)}`}>
-                          {getStatusText(book?.status, book?.stock || 0)}
-                        </span>
-                        <span className={`text-sm font-medium ${getStockColor(book?.stock || 0)}`}>{book?.stock || 0}</span>
+                    <h3 className="text-sm font-medium text-gray-900 line-clamp-2 mb-1" title={book.title}>{book.title}</h3>
+                    <p className="text-xs text-gray-500 mb-2">{book.author}</p>
+                    
+                    <div className="mt-auto pt-2 border-t border-gray-100">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-sm font-bold text-gray-900">{formatCurrency(book.price)}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${statusInfo.color}`}>{statusInfo.text}</span>
                       </div>
-                      <div className="mt-4 flex items-center space-x-3">
-                        <button onClick={() => handleBookAction(book?._id || book?.id, 'view')} className="text-blue-600 text-sm">Xem</button>
-                        <button onClick={() => navigate(`/admin/books/update/${book?._id || book?.id}`)} className="text-green-600 text-sm">Sửa</button>
-                        <button onClick={() => handleBookAction(book?._id || book?.id, 'delete')} className="text-red-600 text-sm">Xóa</button>
+                      <div className="flex justify-between text-xs font-medium">
+                        <button onClick={() => navigate(`/admin/books/update/${book._id || book.id}`)} className="text-green-600 hover:text-green-800">Sửa</button>
+                        <button onClick={() => handleBookAction(book._id || book.id, 'delete')} className="text-red-600 hover:text-red-800">Xóa</button>
                       </div>
                     </div>
                   </div>
-                ))
-              ) : (
-                <div className="col-span-full text-center text-gray-500 py-12">
-                  Không có sách nào
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+                );
+              })
+            ) : (
+              <div className="col-span-full text-center py-8 text-gray-500">
+                Không tìm thấy sách nào.
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Pagination */}
-        {Array.isArray(filteredBooks) && filteredBooks.length > booksPerPage && (
-          <div className="flex justify-between items-center mt-4">
-            <div>
-              <p className="text-sm text-gray-700">
-                Hiển thị <span className="font-medium">{indexOfFirstBook + 1}</span> đến{' '}
-                <span className="font-medium">{Math.min(indexOfLastBook, Array.isArray(filteredBooks) ? filteredBooks.length : 0)}</span> của{' '}
-                <span className="font-medium">{Array.isArray(filteredBooks) ? filteredBooks.length : 0}</span> kết quả
-              </p>
-            </div>
-            <div>
-              <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
+        {pagination.totalPages > 1 && (
+          <div className="flex justify-center mt-6">
+            <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Trước
+              </button>
+              {[...Array(pagination.totalPages)].map((_, i) => (
                 <button
-                  onClick={() => handlePageChange(currentPage - 1)}
-                  disabled={currentPage === 1}
-                  className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Trước
-                </button>
-                {[...Array(totalPages)].map((_, index) => (
-                  <button
-                    key={index + 1}
-                    onClick={() => handlePageChange(index + 1)}
-                    className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${currentPage === index + 1
+                  key={i}
+                  onClick={() => setCurrentPage(i + 1)}
+                  className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
+                    currentPage === i + 1
                       ? 'z-10 bg-blue-50 border-blue-500 text-blue-600'
                       : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
-                      }`}
-                  >
-                    {index + 1}
-                  </button>
-                ))}
-                <button
-                  onClick={() => handlePageChange(currentPage + 1)}
-                  disabled={currentPage === totalPages}
-                  className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  }`}
                 >
-                  Sau
+                  {i + 1}
                 </button>
-              </nav>
-            </div>
+              ))}
+              <button
+                onClick={() => setCurrentPage(p => Math.min(pagination.totalPages, p + 1))}
+                disabled={currentPage === pagination.totalPages}
+                className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Sau
+              </button>
+            </nav>
           </div>
         )}
       </div>
-    );
-  } catch (error) {
-    console.error('❌ BooksPage render error:', error);
-    return (
-      <div className="space-y-6">
-        <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <h3 className="text-sm font-medium text-red-800">
-                Lỗi hiển thị trang sách
-              </h3>
-              <div className="mt-2 text-sm text-red-700">
-                <p>Đã xảy ra lỗi khi hiển thị trang sách. Vui lòng thử lại.</p>
-                <p className="mt-1 text-xs">Error: {error.message}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+    </div>
+  );
 };
 
 export default BooksPage;
