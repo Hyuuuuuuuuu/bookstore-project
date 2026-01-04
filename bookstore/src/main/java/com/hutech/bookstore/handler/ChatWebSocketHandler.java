@@ -2,154 +2,182 @@ package com.hutech.bookstore.handler;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hutech.bookstore.util.JwtUtil;
+import com.hutech.bookstore.model.Conversation;
+import com.hutech.bookstore.model.Message;
+import com.hutech.bookstore.model.Message.SenderType;
+import com.hutech.bookstore.repository.ConversationRepository;
+import com.hutech.bookstore.repository.MessageRepository;
 import com.hutech.bookstore.repository.UserRepository;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
-import org.springframework.web.util.UriComponentsBuilder;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class ChatWebSocketHandler extends TextWebSocketHandler {
 
-    private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
-    private final Map<String, String> sessionUserMap = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final JwtUtil jwtUtil;
+    private final WebSocketSessionManager sessionManager;
+    private final ConversationRepository conversationRepository;
+    private final MessageRepository messageRepository;
     private final UserRepository userRepository;
 
-    public ChatWebSocketHandler(JwtUtil jwtUtil, UserRepository userRepository) {
-        this.jwtUtil = jwtUtil;
+    public ChatWebSocketHandler(WebSocketSessionManager sessionManager,
+                                ConversationRepository conversationRepository,
+                                MessageRepository messageRepository,
+                                UserRepository userRepository) {
+        this.sessionManager = sessionManager;
+        this.conversationRepository = conversationRepository;
+        this.messageRepository = messageRepository;
         this.userRepository = userRepository;
     }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
-        // Extract and validate JWT token from query parameters
-        String token = UriComponentsBuilder.fromUri(session.getUri())
-            .build()
-            .getQueryParams()
-            .getFirst("token");
-
-        if (token == null || token.isEmpty()) {
-            System.out.println("No token provided for WebSocket connection: " + session.getId());
-            session.close(CloseStatus.POLICY_VIOLATION.withReason("Authentication required"));
+        Long userId = (Long) session.getAttributes().get("userId");
+        String role = (String) session.getAttributes().get("role");
+        if (userId == null) {
+            session.close(CloseStatus.POLICY_VIOLATION.withReason("Missing userId"));
             return;
         }
-
-        // Validate JWT token
-        if (!jwtUtil.validateToken(token)) {
-            System.out.println("Invalid JWT token for WebSocket connection: " + session.getId());
-            session.close(CloseStatus.POLICY_VIOLATION.withReason("Invalid authentication token"));
-            return;
-        }
-
-        // Extract user ID from token
-        Long userId = jwtUtil.getUserIdFromToken(token);
-
-        // Verify user exists
-        if (userRepository.findById(userId).isEmpty()) {
-            System.out.println("User not found for WebSocket connection: " + userId);
-            session.close(CloseStatus.POLICY_VIOLATION.withReason("User not found"));
-            return;
-        }
-
-        // Store session with user mapping
-        sessions.put(session.getId(), session);
-        sessionUserMap.put(session.getId(), userId.toString());
-
-        System.out.println("User " + userId + " connected via WebSocket: " + session.getId());
+        sessionManager.register(userId, session);
+        System.out.println("User " + userId + " connected via WebSocket: " + session.getId() + " role=" + role);
     }
 
     @Override
+    @Transactional
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
+        Long userId = (Long) session.getAttributes().get("userId");
+        String role = (String) session.getAttributes().get("role");
         String payload = message.getPayload();
-        String userId = sessionUserMap.get(session.getId());
+        System.out.println("Received raw payload from " + userId + ": " + payload);
 
-        System.out.println("Received message from user " + userId + ": " + payload);
+        JsonNode node = objectMapper.readTree(payload);
+        String type = node.has("type") ? node.get("type").asText() : "";
+        if (!"CHAT_MESSAGE".equalsIgnoreCase(type)) {
+            // ignore non-chat messages
+            return;
+        }
 
-        try {
-            // Parse JSON message
-            JsonNode jsonNode = objectMapper.readTree(payload);
-            String type = jsonNode.has("type") ? jsonNode.get("type").asText() : "CHAT";
+        Long conversationId = node.has("conversationId") && !node.get("conversationId").isNull() ? node.get("conversationId").asLong() : null;
+        String content = node.has("content") ? node.get("content").asText() : "";
 
-            if ("PING".equalsIgnoreCase(type)) {
-                // Reply with PONG to the sender only (keepalive)
-                Map<String, Object> pong = Map.of(
-                    "type", "PONG",
-                    "timestamp", System.currentTimeMillis()
-                );
-                String pongJson = objectMapper.writeValueAsString(pong);
-                if (session.isOpen()) {
-                    session.sendMessage(new TextMessage(pongJson));
-                }
-                return;
-            }
-
-            if (!"CHAT".equalsIgnoreCase(type)) {
-                // Unknown control type - ignore
-                return;
-            }
-
-            // Build standardized chat message
-            String content = jsonNode.has("content") ? jsonNode.get("content").asText() : "";
-            String toUserId = jsonNode.has("toUserId") && !jsonNode.get("toUserId").isNull()
-                    ? jsonNode.get("toUserId").asText()
-                    : null;
-            long timestamp = jsonNode.has("timestamp") ? jsonNode.get("timestamp").asLong() : System.currentTimeMillis();
-
-            Map<String, Object> standardizedMessage = Map.of(
-                    "type", "CHAT",
-                    "sender", userId,
-                    "content", content,
-                    "timestamp", timestamp,
-                    "toUserId", toUserId
-            );
-
-            String jsonMessage = objectMapper.writeValueAsString(standardizedMessage);
-            TextMessage chatMsg = new TextMessage(jsonMessage);
-
-            // Send to sender (echo) if open
-            if (session.isOpen()) {
-                session.sendMessage(chatMsg);
-            }
-
-            // Send to recipient(s) matching toUserId
-            if (toUserId != null) {
-                for (Map.Entry<String, String> entry : sessionUserMap.entrySet()) {
-                    String sessId = entry.getKey();
-                    String uid = entry.getValue();
-                    if (toUserId.equals(uid)) {
-                        WebSocketSession recipient = sessions.get(sessId);
-                        if (recipient != null && recipient.isOpen()) {
-                            recipient.sendMessage(chatMsg);
-                        }
-                    }
-                }
+        // Role-specific rules
+        if ("USER".equalsIgnoreCase(role)) {
+            // If conversationId null -> create or fetch existing open conversation for user
+            Conversation conversation;
+            if (conversationId == null) {
+                conversation = conversationRepository.findByUserIdAndStatus(userId, Conversation.Status.OPEN)
+                        .orElseGet(() -> {
+                            Conversation c = new Conversation();
+                            c.setUserId(userId);
+                            c.setStatus(Conversation.Status.OPEN);
+                            return conversationRepository.save(c);
+                        });
             } else {
-                // If no toUserId provided, broadcast to everyone except sender
-                for (WebSocketSession s : sessions.values()) {
-                    if (s.isOpen() && !s.getId().equals(session.getId())) {
-                        s.sendMessage(chatMsg);
-                    }
+                conversation = conversationRepository.findById(conversationId).orElse(null);
+                if (conversation == null || !conversation.getUserId().equals(userId)) {
+                    // invalid conversation ownership
+                    session.sendMessage(new TextMessage("{\"type\":\"ERROR\",\"message\":\"Invalid conversation\"}"));
+                    return;
                 }
             }
 
-        } catch (Exception e) {
-            System.err.println("Error processing message: " + e.getMessage());
-            e.printStackTrace();
+            // persist message
+            Message msg = new Message();
+            msg.setConversation(conversation);
+            msg.setSenderType(SenderType.USER);
+            msg.setSenderId(userId);
+            msg.setContent(content);
+            Message saved = messageRepository.save(msg);
+            System.out.println("Saved message id=" + saved.getId() + " conversation=" + conversation.getId());
+
+            // build outgoing message
+            Map<String, Object> out = Map.of(
+                    "type", "CHAT_MESSAGE",
+                    "conversationId", conversation.getId(),
+                    "sender", Map.of("id", userId, "role", "USER"),
+                    "content", content,
+                    "timestamp", msg.getCreatedAt().toString()
+            );
+            String outJson = objectMapper.writeValueAsString(out);
+
+            // send to user's sessions (echo) and all online supports
+            sessionManager.getSessionsForUser(userId).forEach(s -> {
+                try { s.sendMessage(new TextMessage(outJson)); } catch (Exception ignored) {}
+            });
+            // broadcast to supports: find online users whose role is ADMIN or STAFF
+            sessionManager.getAllSessions().forEach(s -> {
+                try {
+                    Long sid = (Long) s.getAttributes().get("userId");
+                    String srole = (String) s.getAttributes().get("role");
+                    if (sid != null && srole != null && (srole.equalsIgnoreCase("ADMIN") || srole.equalsIgnoreCase("STAFF"))) {
+                        s.sendMessage(new TextMessage(outJson));
+                    }
+                } catch (Exception ignored) {}
+            });
+
+        } else if ("STAFF".equalsIgnoreCase(role) || "ADMIN".equalsIgnoreCase(role)) {
+            // staff/admin MUST provide conversationId
+            if (conversationId == null) {
+                session.sendMessage(new TextMessage("{\"type\":\"ERROR\",\"message\":\"conversationId required for staff\"}"));
+                return;
+            }
+            Conversation conversation = conversationRepository.findById(conversationId).orElse(null);
+            if (conversation == null) {
+                session.sendMessage(new TextMessage("{\"type\":\"ERROR\",\"message\":\"Conversation not found\"}"));
+                return;
+            }
+            // persist message as SUPPORT
+            Message msg = new Message();
+            msg.setConversation(conversation);
+            msg.setSenderType(SenderType.SUPPORT);
+            msg.setSenderId(userId);
+            msg.setContent(content);
+            Message saved = messageRepository.save(msg);
+            System.out.println("Saved support message id=" + saved.getId() + " conversation=" + conversation.getId());
+
+            Map<String, Object> out = Map.of(
+                    "type", "CHAT_MESSAGE",
+                    "conversationId", conversation.getId(),
+                    "sender", Map.of("id", userId, "role", "SUPPORT"),
+                    "content", content,
+                    "timestamp", msg.getCreatedAt().toString()
+            );
+            String outJson = objectMapper.writeValueAsString(out);
+
+            // send to user and all supports
+            sessionManager.getSessionsForUser(conversation.getUserId()).forEach(s -> {
+                try { s.sendMessage(new TextMessage(outJson)); } catch (Exception ignored) {}
+            });
+            sessionManager.getAllSessions().forEach(s -> {
+                try {
+                    Long sid = (Long) s.getAttributes().get("userId");
+                    String srole = (String) s.getAttributes().get("role");
+                    if (sid != null && srole != null && (srole.equalsIgnoreCase("ADMIN") || srole.equalsIgnoreCase("STAFF"))) {
+                        s.sendMessage(new TextMessage(outJson));
+                    }
+                } catch (Exception ignored) {}
+            });
+        } else {
+            // unknown role
+            session.sendMessage(new TextMessage("{\"type\":\"ERROR\",\"message\":\"Unauthorized role\"}"));
         }
     }
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-        String userId = sessionUserMap.remove(session.getId());
-        sessions.remove(session.getId());
-        System.out.println("User " + userId + " disconnected: " + session.getId());
+        Long userId = (Long) session.getAttributes().get("userId");
+        if (userId != null) {
+            sessionManager.unregister(userId, session.getId());
+            System.out.println("User " + userId + " disconnected: " + session.getId());
+        }
     }
 }

@@ -51,7 +51,7 @@ const ChatsPage = () => {
       // global message handler for admin
       const handleIncoming = (msg) => {
         // Only handle chat messages; ignore control frames (PING, PONG, etc.)
-        if (!msg || msg.type !== 'CHAT') return
+        if (!msg || (msg.type !== 'CHAT' && msg.type !== 'CHAT_MESSAGE')) return
         // Buffer if user or conversations not ready yet
         if (!user || !conversationsLoadedRef.current) {
           incomingBufferRef.current.push(msg)
@@ -59,45 +59,50 @@ const ChatsPage = () => {
           return
         }
 
+        // Normalize incoming message (server sends CHAT_MESSAGE with conversationId and sender object)
+        const senderId = msg.sender?.id || msg.sender
+        const senderRole = msg.sender?.role || (msg.sender && (msg.sender === 'admin' ? 'SUPPORT' : 'USER')) || 'USER'
+        const convId = msg.conversationId || null
+
         // Convert to expected format for admin UI
         const convertedMessage = {
-          messageId: `ws_${Date.now()}_${Math.random()}`,
-          text: msg.content,
+          messageId: msg.messageId || msg.id || `ws_${Date.now()}_${Math.random()}`,
+          text: msg.content || msg.text || '',
           timestamp: new Date(msg.timestamp || Date.now()),
-          sender: msg.sender,
+          sender: senderId,
           fromUser: {
-            userId: msg.sender,
-            name: msg.sender === '1' ? 'Admin' : 'User',
-            email: msg.sender === '1' ? 'admin@bookstore.com' : 'user@bookstore.com'
+            userId: senderId,
+            name: senderRole === 'SUPPORT' ? 'Support' : `User ${senderId}`,
+            email: senderRole === 'SUPPORT' ? 'support@bookstore.com' : `user${senderId}@bookstore.com`
           },
-          toUser: {
-            userId: msg.toUserId,
-            name: msg.toUserId === 'admin' ? 'Admin' : 'User',
-            email: msg.toUserId === 'admin' ? 'admin@bookstore.com' : 'user@bookstore.com'
-          },
+          toUser: { userId: null },
           messageType: 'text',
           isRead: false
         }
 
-        // Generate conversation ID
-        const conversationId = generateConversationId(msg.sender, msg.toUserId)
+        const conversationId = String(convId)
 
         // Update conversations list
         setConversations(prev => {
           const idx = prev.findIndex(c => c.conversationId === conversationId)
           if (idx === -1) {
-            // Add new conversation
-            return [...prev, {
-              conversationId,
-              user: {
-                userId: msg.sender,
-                name: msg.sender === '1' ? 'Admin' : 'User',
-                email: msg.sender === '1' ? 'admin@bookstore.com' : 'user@bookstore.com'
-              },
-              lastMessage: convertedMessage.text,
-              lastMessageTime: convertedMessage.timestamp,
-              messages: [convertedMessage]
-            }]
+          // Add new conversation
+          const newConv = {
+            conversationId,
+            user: {
+              userId: msg.sender,
+              name: msg.sender === '1' ? 'Admin' : 'User',
+              email: msg.sender === '1' ? 'admin@bookstore.com' : 'user@bookstore.com'
+            },
+            lastMessage: convertedMessage.text,
+            lastMessageTime: convertedMessage.timestamp,
+            messages: [convertedMessage]
+          }
+          // auto-select new conversation if none selected
+          if (!selectedConversationRef.current) {
+            setSelectedConversation(newConv)
+          }
+          return [...prev, newConv]
           } else {
             // Update existing conversation
             const copy = [...prev]
@@ -107,6 +112,10 @@ const ChatsPage = () => {
               lastMessageTime: convertedMessage.timestamp,
               messages: [...(copy[idx].messages || []), convertedMessage]
             }
+          // if this is the currently selected conversation, append to messages pane
+          if (selectedConversationRef.current && selectedConversationRef.current.conversationId === conversationId) {
+            setMessages(prevMsgs => [...prevMsgs, convertedMessage])
+          }
             return copy
           }
         })
@@ -116,9 +125,13 @@ const ChatsPage = () => {
         console.error('WebSocket error (admin):', err)
         setConnected(false)
       }
+      const handleOpen = () => {
+        setConnected(true)
+      }
 
       chatService.onMessage(handleIncoming)
       chatService.onError(handleError)
+      chatService.onOpen(handleOpen)
       const handleVisibility = () => {
         if (document.visibilityState === 'visible' && token && user) {
           const userId = user?._id || user?.id || user?.userId;
@@ -135,6 +148,7 @@ const ChatsPage = () => {
         window.removeEventListener('visibilitychange', handleVisibility)
         chatService.offMessage(handleIncoming)
         chatService.offError(handleError)
+        chatService.offOpen(handleOpen)
         chatService.disconnect()
         setConnected(false)
       }
@@ -163,29 +177,35 @@ const ChatsPage = () => {
       if (incomingBufferRef.current.length > 0) {
         const buffered = incomingBufferRef.current.splice(0)
         // Process buffered chat messages: update conversations list/messages
-        buffered.forEach(m => {
+            buffered.forEach(m => {
           try {
-            if (m.type !== 'CHAT') return
-            const conversationId = generateConversationId(m.sender, m.toUserId)
+            if (m.type !== 'CHAT' && m.type !== 'CHAT_MESSAGE') return
+            const senderId = m.sender?.id || m.sender
+            const convId = String(m.conversationId || '')
             const convertedMessage = {
-              messageId: `ws_${Date.now()}_${Math.random()}`,
-              text: m.content,
+              messageId: m.messageId || `ws_${Date.now()}_${Math.random()}`,
+              text: m.content || m.text || '',
               timestamp: new Date(m.timestamp || Date.now()),
-              fromUser: { userId: m.sender },
-              toUser: { userId: m.toUserId },
+              fromUser: { userId: senderId },
+              toUser: { userId: null },
               messageType: 'text',
               isRead: false
             }
+            const conversationId = String(convId)
             setConversations(prev => {
               const idx = prev.findIndex(c => c.conversationId === conversationId)
               if (idx === -1) {
-                return [...prev, {
+                const newConv = {
                   conversationId,
                   user: { userId: m.sender, name: `User ${m.sender}`, email: '' },
                   lastMessage: convertedMessage.text,
                   lastMessageTime: convertedMessage.timestamp,
                   messages: [convertedMessage]
-                }]
+                }
+                if (!selectedConversationRef.current) {
+                  setSelectedConversation(newConv)
+                }
+                return [...prev, newConv]
               } else {
                 const copy = [...prev]
                 copy[idx] = {
@@ -193,6 +213,9 @@ const ChatsPage = () => {
                   lastMessage: convertedMessage.text,
                   lastMessageTime: convertedMessage.timestamp,
                   messages: [...(copy[idx].messages || []), convertedMessage]
+                }
+                if (selectedConversationRef.current && selectedConversationRef.current.conversationId === conversationId) {
+                  setMessages(prevMsgs => [...prevMsgs, convertedMessage])
                 }
                 return copy
               }
@@ -255,9 +278,13 @@ const ChatsPage = () => {
             avatar: msg.toId.avatar
           } : null)
 
+          // Determine canonical sender id and role from possible backend shapes
+          const senderId = msg.fromUserId || msg.senderId || (fromUser && fromUser.userId) || (msg.fromId && (msg.fromId._id || msg.fromId)) || null
+          const senderRole = (msg.senderType || msg.sender_type || (msg.sender && msg.sender.role) || (msg.fromUser && msg.fromUser.role) || null)
+
           // FIX: Đơn giản hóa - loại bỏ phân biệt role, chỉ dùng userId
           // FIX: Đảm bảo messageId luôn là string để so sánh chính xác
-          const messageId = String(msg.messageId || msg._id || '')
+          const messageId = String(msg.messageId || msg._id || msg.id || '')
           
           return {
             messageId,
@@ -267,7 +294,10 @@ const ChatsPage = () => {
             messageType: msg.messageType || 'text',
             imageUrl: msg.imageUrl || null,
             fromUser,
-            toUser
+            toUser,
+            senderId,
+            senderRole,
+            raw: msg
           }
         })
         // Sắp xếp tăng dần theo thời gian để tin cũ ở trên, tin mới ở dưới
@@ -299,48 +329,100 @@ const ChatsPage = () => {
     selectedConversationRef.current = selectedConversation
   }, [selectedConversation])
 
+  // Restore chat UI state (selected conversation + messages) from localStorage on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('admin_chat_state')
+      if (!raw) return
+      const parsed = JSON.parse(raw)
+      if (parsed?.selectedConversation) {
+        // convert any timestamp strings in messages back to Date objects
+        const restoredMessages = (parsed.messages || []).map(m => ({
+          ...m,
+          timestamp: m.timestamp ? new Date(m.timestamp) : new Date()
+        }))
+        setSelectedConversation(parsed.selectedConversation)
+        setMessages(restoredMessages)
+        // rebuild messageIdsSet to avoid duplicates
+        messageIdsSetRef.current.clear()
+        restoredMessages.forEach(m => {
+          const id = String(m.messageId || m.id || '')
+          if (id && !id.startsWith('temp_')) messageIdsSetRef.current.add(id)
+        })
+      }
+    } catch (e) {
+      console.warn('Failed to restore admin chat state', e)
+    }
+  }, [])
+
+  // Persist selectedConversation + messages to localStorage so reload preserves UI
+  useEffect(() => {
+    try {
+      const payload = {
+        selectedConversation,
+        messages: messages.map(m => ({ ...m, timestamp: m.timestamp ? new Date(m.timestamp).toISOString() : null }))
+      }
+      localStorage.setItem('admin_chat_state', JSON.stringify(payload))
+    } catch (e) {
+      console.warn('Failed to persist admin chat state', e)
+    }
+  }, [selectedConversation, messages])
+
   // WebSocket message handler - simplified for raw WebSocket
   useEffect(() => {
     if (!connected) return
 
-    const handleNewMessage = (data) => {
-      // Handle new standardized WebSocket message format
+      const handleNewMessage = (data) => {
       if (!data) return
+      if (data.type !== 'CHAT' && data.type !== 'CHAT_MESSAGE') return
 
-      // Convert WebSocket message to UI format
+      const senderId = data.sender?.id || data.sender
+      const convId = String(data.conversationId || '')
       const uiMessage = {
-        messageId: `ws_${Date.now()}_${Math.random()}`,
-        text: data.content,
+        messageId: data.messageId || data.id || `ws_${Date.now()}_${Math.random()}`,
+        text: data.content || data.text || '',
         timestamp: new Date(data.timestamp || Date.now()),
-        sender: data.sender,
-        fromUser: {
-          userId: data.sender,
-          name: data.sender === '1' ? 'Admin' : 'User',
-          email: data.sender === '1' ? 'admin@bookstore.com' : 'user@bookstore.com'
-        },
-        toUser: {
-          userId: data.toUserId,
-          name: data.toUserId === 'admin' ? 'Admin' : 'User',
-          email: data.toUserId === 'admin' ? 'admin@bookstore.com' : 'user@bookstore.com'
-        },
+        sender: senderId,
+        fromUser: { userId: senderId },
+        toUser: { userId: null },
         messageType: 'text',
-        isRead: false
+        isRead: false,
+        conversationId: convId
       }
 
-      // Get current conversation
       const current = selectedConversationRef.current
       if (!current) return
+      if (String(current.conversationId) !== String(convId)) return
+      setMessages(prev => {
+        const serverId = data.messageId || data.id
 
-      // Generate conversation ID from message
-      const messageConversationId = generateConversationId(data.sender, data.toUserId)
+        // If server id already processed, skip
+        if (serverId && messageIdsSetRef.current.has(String(serverId))) return prev
 
-      // Only add message if it belongs to current conversation
-      if (messageConversationId !== current.conversationId) {
-        return
-      }
+        // If this is an echo of a temp message sent by current admin, replace the temp one
+        if (String(senderId) === String(user._id || user?.id)) {
+          const tempIdx = prev.findIndex(m =>
+            String(m.messageId || '').startsWith('temp_') &&
+            m.text === uiMessage.text &&
+            Math.abs(new Date(m.timestamp).getTime() - new Date(uiMessage.timestamp).getTime()) < 5000
+          )
+          if (tempIdx !== -1) {
+            const copy = [...prev]
+            copy[tempIdx] = { ...copy[tempIdx], ...uiMessage, messageId: serverId || copy[tempIdx].messageId }
+            if (serverId) messageIdsSetRef.current.add(String(serverId))
+            return copy
+          }
+        }
 
-      // Add message to current conversation
-      setMessages(prev => [...prev, uiMessage])
+        // Dedupe by server id or by text+timestamp proximity
+        const exists = prev.some(msg =>
+          serverId ? String(msg.messageId || msg.id) === String(serverId)
+                   : (msg.text === uiMessage.text && Math.abs(new Date(msg.timestamp).getTime() - uiMessage.timestamp.getTime()) < 1000)
+        )
+        if (exists) return prev
+        if (serverId) messageIdsSetRef.current.add(String(serverId))
+        return [...prev, uiMessage]
+      })
 
       // Scroll to bottom
       setTimeout(() => {
@@ -425,10 +507,15 @@ const ChatsPage = () => {
       // Send via WebSocket
       const convId = selectedConversation.conversationId || selectedConversation._id
       const targetUserId = selectedConversation.user?.userId
-      if (targetUserId) {
-        chatService.sendMessage(targetUserId, newMessage.trim())
-      } else {
-        chatService.sendToAdmin(newMessage.trim())
+      try {
+        chatService.sendChatMessage(convId, newMessage.trim())
+      } catch (e) {
+        // fallback
+        if (targetUserId) {
+          chatService.sendMessage(targetUserId, newMessage.trim())
+        } else {
+          chatService.sendToAdmin(newMessage.trim())
+        }
       }
 
       setNewMessage('')
@@ -590,9 +677,9 @@ const ChatsPage = () => {
                 </div>
               ) : (
                 <div className="space-y-1">
-                  {conversations.map((conversation) => (
+                  {conversations.map((conversation, idx) => (
                     <div
-                      key={conversation.conversationId}
+                      key={`${conversation.conversationId ?? conversation.user?.userId ?? 'conv'}_${idx}`}
                       onClick={() => setSelectedConversation(conversation)}
                       className={`p-3 cursor-pointer hover:bg-gray-50 ${
                         selectedConversation?.conversationId === conversation.conversationId ? 'bg-blue-50 border-r-2 border-blue-500' : ''
@@ -660,7 +747,12 @@ const ChatsPage = () => {
                         // FIX: Đơn giản hóa - chỉ so sánh userId để xác định tin nhắn của mình
                         // - Tin do current user gửi (fromUser.userId === current userId) → hiển thị bên phải
                         // - Tin từ user khác (fromUser.userId !== current userId) → hiển thị bên trái
-                        const isFromCurrentUser = message.fromUser && message.fromUser.userId?.toString() === user._id?.toString();
+                        // Determine sender id/type robustly
+                        const senderId = message.senderId || message.fromUser?.userId || message.raw?.fromUserId || message.raw?.senderId || message.sender || message.fromId || null;
+                        const senderType = (message.senderRole || message.senderRole || message.raw?.senderType || message.raw?.sender_type || '').toString().toUpperCase();
+                        const currentUserId = user?._id || user?.id || user?.userId;
+                        // On admin UI: messages sent by support (senderType === 'SUPPORT') should appear on right.
+                        const isFromCurrentUser = (senderId && String(senderId) === String(currentUserId)) || (senderType === 'SUPPORT');
                         
                   // FIX: Render message với key unique
                   // Tham khảo ChatWidget.jsx line 408: `key={message.messageId || message._id || `msg_${Date.now()}`}`
@@ -708,80 +800,7 @@ const ChatsPage = () => {
                               }`}>
                                 {formatTime(message.timestamp)}
                               </p>
-                      {/* Edit / Delete actions for admin */}
-                      <div className="mt-1 flex items-center space-x-2">
-                        {editingMessageId === (message.messageId || message._id) ? (
-                          <>
-                            <input
-                              value={editingText}
-                              onChange={(e) => setEditingText(e.target.value)}
-                              className="text-sm px-2 py-1 border rounded"
-                            />
-                            <button
-                              onClick={async () => {
-                                try {
-                                  const id = message.messageId || message._id
-                                  const res = await messageAPI.updateMessage(id, { text: editingText })
-                                  // try to read updated message from response, fallback to local update
-                                  const updated = res?.data?.data || res?.data || null
-                                  setMessages(prev => prev.map(m => {
-                                    const mid = m.messageId || m._id
-                                    if (String(mid) === String(id)) {
-                                      return updated ? { ...m, ...updated } : { ...m, text: editingText }
-                                    }
-                                    return m
-                                  }))
-                                  setEditingMessageId(null)
-                                  setEditingText('')
-                                } catch (e) {
-                                  console.error('Failed to update message', e)
-                                  alert('Không thể chỉnh sửa tin nhắn')
-                                }
-                              }}
-                              className="text-xs text-green-600 hover:underline"
-                            >
-                              Lưu
-                            </button>
-                            <button
-                              onClick={() => { setEditingMessageId(null); setEditingText('') }}
-                              className="text-xs text-gray-600 hover:underline"
-                            >
-                              Hủy
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() => {
-                                const id = message.messageId || message._id
-                                setEditingMessageId(id)
-                                setEditingText(message.text || '')
-                              }}
-                              className="text-xs text-blue-600 hover:underline"
-                            >
-                              Chỉnh sửa
-                            </button>
-                            <button
-                              onClick={async () => {
-                                try {
-                                  const id = message.messageId || message._id
-                                  await messageAPI.deleteMessage(id)
-                                  setMessages(prev => prev.filter(m => (m.messageId || m._id) !== id))
-                                  if (id && !String(id).startsWith('temp_')) {
-                                    messageIdsSetRef.current.delete(String(id))
-                                  }
-                                } catch (e) {
-                                  console.error('Failed to delete message', e)
-                                  alert('Không thể xóa tin nhắn')
-                                }
-                              }}
-                              className="text-xs text-red-500 hover:underline ml-2"
-                            >
-                              Xóa
-                            </button>
-                          </>
-                        )}
-                      </div>
+                      {/* Edit/Delete removed for message immutability */}
                             </div>
                           </div>
                         )

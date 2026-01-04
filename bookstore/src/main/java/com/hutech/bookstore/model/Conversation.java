@@ -10,28 +10,24 @@ import org.hibernate.annotations.UpdateTimestamp;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "messages")
+@Table(name = "conversations")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class Message {
+public class Conversation {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "conversation_id", nullable = false)
-    private Conversation conversation;
+    @Column(name = "user_id", nullable = false, unique = true)
+    private Long userId;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "sender_type", nullable = false)
-    private SenderType senderType;
+    @Column(nullable = false)
+    private Status status = Status.OPEN;
 
-    @Column(name = "sender_id", nullable = false)
-    private Long senderId;
-
-    @Column(nullable = false, columnDefinition = "TEXT")
-    private String content;
+    @Column(name = "assigned_support_id")
+    private Long assignedSupportId;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -41,11 +37,9 @@ public class Message {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    @Column(name = "is_deleted", nullable = false)
-    private Boolean isDeleted = false;
-
-    public enum SenderType {
-        USER, SUPPORT
+    public enum Status {
+        OPEN, ASSIGNED, CLOSED
     }
 }
+
 

@@ -20,6 +20,8 @@ const ChatPage = () => {
   const typingTimeoutRef = useRef(null)
   const fileInputRef = useRef(null)
   const incomingBufferRef = useRef([]) // Buffer messages received before conversation/user ready
+  const messageIdsSetRef = useRef(new Set()) // Track server message ids to avoid duplicates
+  const pendingTempMapRef = useRef(new Map()) // tempId -> true (for optimistic messages)
 
   // Initialize socket connection
   useEffect(() => {
@@ -47,41 +49,73 @@ const ChatPage = () => {
       // subscribe to incoming messages via chatService
       const handleIncoming = (message) => {
         // Only handle chat messages; ignore control frames (PING, PONG, etc.)
-        if (!message || message.type !== 'CHAT') return
-        // Buffer if user or conversation is not ready yet
-        if (!user || !conversationId) {
+        if (!message || (message.type !== 'CHAT' && message.type !== 'CHAT_MESSAGE')) return
+
+        const senderId = message.sender?.id || message.sender
+        const msgConversationId = message.conversationId || message.conversation || null
+
+        // If we don't have conversationId yet but message contains conversationId,
+        // accept it and set the conversationId for this client (server targeted this session).
+        if (!conversationId && msgConversationId) {
+          setConversationId(msgConversationId)
+          // load history for this conversation if we haven't
+          try { loadMessages(msgConversationId) } catch (e) { /* ignore */ }
+        }
+
+        // Buffer if user is not ready
+        if (!user) {
           incomingBufferRef.current.push(message)
-          // cap buffer to 100 messages
-          if (incomingBufferRef.current.length > 100) incomingBufferRef.current.shift()
+          if (incomingBufferRef.current.length > 200) incomingBufferRef.current.shift()
           return
         }
-        // Convert to UI message format
+        // Only accept messages that belong to current conversation (if we have one)
+        if (conversationId && msgConversationId && String(msgConversationId) !== String(conversationId)) return
+
+        const serverId = message.messageId || message.id
         const uiMessage = {
-          messageId: `ws_${Date.now()}_${Math.random()}`,
-          text: message.content,
+          messageId: serverId || `ws_${Date.now()}_${Math.random()}`,
+          text: message.content || message.text || '',
           timestamp: new Date(message.timestamp || Date.now()),
-          sender: message.sender,
+          sender: senderId,
           fromUser: {
-            userId: message.sender,
-            name: message.sender === '1' ? 'Admin' : 'User',
-            email: message.sender === '1' ? 'admin@bookstore.com' : 'user@bookstore.com'
+            userId: senderId,
+            name: (message.sender && message.sender.role === 'SUPPORT') ? 'Support' : (senderId === '1' ? 'Admin' : 'User'),
+            email: (message.sender && message.sender.role === 'SUPPORT') ? 'support@bookstore.com' : 'user@bookstore.com'
           },
-          toUser: {
-            userId: message.toUserId,
-            name: message.toUserId === 'admin' ? 'Admin' : 'User',
-            email: message.toUserId === 'admin' ? 'admin@bookstore.com' : 'user@bookstore.com'
-          },
-          messageType: 'text',
+          toUser: { userId: null },
+          messageType: message.messageType || 'text',
           isRead: false
         }
 
+        // Deduplicate: if server id already processed, skip
+        if (serverId && messageIdsSetRef.current.has(String(serverId))) return
+
         setMessages(prev => {
-          // Avoid duplicates by checking content and timestamp
+          // If message is an echo of a temp message we created (same text and near timestamp), replace temp
+          if (String(senderId) === String(user._id || user?.id)) {
+            const idx = prev.findIndex(m =>
+              String(m.messageId || '').startsWith('temp_') &&
+              m.text === uiMessage.text &&
+              Math.abs(new Date(m.timestamp).getTime() - uiMessage.timestamp.getTime()) < 5000
+            )
+            if (idx !== -1) {
+              const copy = [...prev]
+              copy[idx] = { ...copy[idx], ...uiMessage, messageId: serverId || copy[idx].messageId }
+              if (serverId) messageIdsSetRef.current.add(String(serverId))
+              // remove pendingTemp map entry
+              const tempKey = copy[idx].messageId
+              if (tempKey && pendingTempMapRef.current.has(tempKey)) pendingTempMapRef.current.delete(tempKey)
+              return copy
+            }
+          }
+
+          // Avoid duplicates by server id or text+timestamp proximity
           const exists = prev.some(msg =>
-            msg.text === uiMessage.text &&
-            Math.abs(new Date(msg.timestamp).getTime() - uiMessage.timestamp.getTime()) < 1000
+            serverId ? String(msg.messageId || msg.id) === String(serverId)
+                     : (msg.text === uiMessage.text && Math.abs(new Date(msg.timestamp).getTime() - uiMessage.timestamp.getTime()) < 1000)
           )
           if (exists) return prev
+          if (serverId) messageIdsSetRef.current.add(String(serverId))
           return [...prev, uiMessage]
         })
         scrollToBottom()
@@ -91,9 +125,13 @@ const ChatPage = () => {
         setError('Không thể kết nối đến server chat: ' + (err?.error || err?.message || JSON.stringify(err)))
         setConnected(false)
       }
+      const handleOpen = () => {
+        setConnected(true)
+      }
 
       chatService.onMessage(handleIncoming)
       chatService.onError(handleError)
+      chatService.onOpen(handleOpen)
       const handleVisibility = () => {
         if (document.visibilityState === 'visible' && token && user) {
           const userId = user?._id || user?.id || user?.userId;
@@ -110,6 +148,7 @@ const ChatPage = () => {
         window.removeEventListener('visibilitychange', handleVisibility)
         chatService.offMessage(handleIncoming)
         chatService.offError(handleError)
+        chatService.offOpen(handleOpen)
         chatService.disconnect()
         setConnected(false)
       }
@@ -131,26 +170,23 @@ const ChatPage = () => {
         setConversationId(conversationId)
         setAdminUser(adminUser)
         
-        // Load messages
-        await loadMessages(conversationId)
-        // flush any buffered incoming messages for this conversation
+        // Load messages only if conversationId is present.
+        if (conversationId) {
+          await loadMessages(conversationId)
+        } else {
+          // No conversation yet - clear messages and wait for user to send first message
+          setMessages([])
+        }
+        // flush any buffered incoming messages for this conversation by re-processing them
         if (incomingBufferRef.current.length > 0) {
           const buffered = incomingBufferRef.current.splice(0)
-          const uiBuffered = buffered
-            .filter(m => m.type === 'CHAT' && (m.conversationId === conversationId || !m.conversationId))
-            .map(m => ({
-              messageId: `ws_${Date.now()}_${Math.random()}`,
-              text: m.content,
-              timestamp: new Date(m.timestamp || Date.now()),
-              fromUser: { userId: m.sender },
-              toUser: { userId: m.toUserId },
-              messageType: 'text',
-              isRead: false
-            }))
-          if (uiBuffered.length > 0) {
-            setMessages(prev => [...prev, ...uiBuffered])
-            scrollToBottom()
-          }
+          buffered.forEach(m => {
+            try {
+              handleIncoming(m)
+            } catch (e) {
+              console.error('Error processing buffered incoming message', e)
+            }
+          })
         }
       } catch (error) {
         console.error('❌ Error getting conversation:', error)
@@ -179,11 +215,71 @@ const ChatPage = () => {
   const loadMessages = async (convId) => {
     try {
       const response = await chatAPI.getUserConversationMessages(convId, 1, 1000)
-      setMessages(response.data.data.messages || [])
+      const msgs = response.data.data.messages || []
+      // Normalize each server message into UI shape:
+      const normalized = msgs.map(m => {
+        const msgId = m.messageId || m.id || m._id || null
+        const senderId = m.fromUserId || m.senderId || (m.fromUser && m.fromUser.userId) || (m.sender && (m.sender.id || m.sender))
+        const senderType = m.messageType || m.senderType || (m.sender && m.sender.role) || null
+        const created = m.createdAt || m.created_at || m.timestamp || new Date()
+        return {
+          messageId: msgId,
+          text: m.content || m.text || m.contentText || '',
+          timestamp: created,
+          messageType: senderType ? (senderType.toString ? senderType.toString() : senderType) : 'text',
+          imageUrl: m.imageUrl || null,
+          fromUser: { userId: senderId },
+          raw: m
+        }
+      }).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+
+      setMessages(normalized)
+      // rebuild processed server ids set
+      messageIdsSetRef.current.clear()
+      normalized.forEach(m => {
+        const id = String(m.messageId || '')
+        if (id && !id.startsWith('temp_')) messageIdsSetRef.current.add(id)
+      })
     } catch (error) {
       console.error('❌ Error loading messages:', error)
     }
   }
+
+  // Restore persisted user chat state (messages + conversationId) from localStorage
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('user_chat_state')
+      if (!raw) return
+      const parsed = JSON.parse(raw)
+      if (parsed?.conversationId) {
+        setConversationId(parsed.conversationId)
+      }
+      if (parsed?.messages) {
+        const restored = parsed.messages.map(m => ({ ...m, timestamp: m.timestamp ? new Date(m.timestamp) : new Date() }))
+        setMessages(restored)
+        messageIdsSetRef.current.clear()
+        restored.forEach(m => {
+          const id = String(m.messageId || m.id || '')
+          if (id && !id.startsWith('temp_')) messageIdsSetRef.current.add(id)
+        })
+      }
+    } catch (e) {
+      console.warn('Failed to restore user chat state', e)
+    }
+  }, [])
+
+  // Persist user chat state to localStorage
+  useEffect(() => {
+    try {
+      const payload = {
+        conversationId,
+        messages: messages.map(m => ({ ...m, timestamp: m.timestamp ? new Date(m.timestamp).toISOString() : null }))
+      }
+      localStorage.setItem('user_chat_state', JSON.stringify(payload))
+    } catch (e) {
+      console.warn('Failed to persist user chat state', e)
+    }
+  }, [conversationId, messages])
 
   // Socket event listeners are handled via chatService in the connect effect
 
@@ -197,7 +293,7 @@ const ChatPage = () => {
 
   const handleSendMessage = async (e) => {
     e.preventDefault()
-    if (!newMessage.trim() || !connected || !conversationId) return
+    if (!newMessage.trim() || !connected) return
 
     try {
       const tempMessage = {
@@ -225,11 +321,20 @@ const ChatPage = () => {
       setMessages(prev => [...prev, tempMessage])
       scrollToBottom()
 
-      // send via STOMP
-      if (adminUser && adminUser.userId) {
-        chatService.sendMessage(adminUser.userId, newMessage.trim(), { messageType: 'text', conversationId })
-      } else {
-        chatService.sendToAdmin(newMessage.trim(), { messageType: 'text', conversationId })
+      // send via new spec: sendChatMessage with conversationId (backend will create conversation if needed)
+      try {
+        chatService.sendChatMessage(conversationId, newMessage.trim())
+      } catch (e) {
+        // fallback to previous methods if available
+        try {
+          if (adminUser && adminUser.userId) {
+            chatService.sendMessage(adminUser.userId, newMessage.trim(), { messageType: 'text', conversationId })
+          } else {
+            chatService.sendToAdmin(newMessage.trim(), { messageType: 'text', conversationId })
+          }
+        } catch (e2) {
+          console.error('Fallback send failed', e2)
+        }
       }
 
       setNewMessage('')
@@ -251,10 +356,11 @@ const ChatPage = () => {
       formData.append('image', file)
       const uploadResponse = await chatAPI.uploadImage(formData)
       const imageUrl = uploadResponse.data.data.imageUrl
-      if (adminUser && adminUser.userId) {
-        chatService.sendMessage(adminUser.userId, 'Đã gửi ảnh', { messageType: 'image', imageUrl, conversationId })
-      } else {
-        chatService.sendToAdmin('Đã gửi ảnh', { messageType: 'image', imageUrl, conversationId })
+      // send image as message content note (backend will interpret options)
+      try {
+        chatService.sendChatMessage(conversationId, '[IMAGE]', { messageType: 'image', imageUrl })
+      } catch (e) {
+        console.error('Image send failed', e)
       }
       if (fileInputRef.current) fileInputRef.current.value = ''
     } catch (error) {
@@ -326,22 +432,20 @@ const ChatPage = () => {
             </div>
           ) : (
             <div className="space-y-4">
-              {messages.map((message) => {
-                // Logic hiển thị tin nhắn cho USER:
-                // - Tin do user gửi (fromId === userId) → hiển thị bên phải
-                // - Tin từ admin/staff (fromId !== userId) → hiển thị bên trái
-                const isFromCurrentUser = message.fromUser && message.fromUser.userId?.toString() === user._id?.toString();
-                
-                console.log('🔍 ChatPage: Message positioning:', {
-                  messageId: message.messageId,
-                  fromUser: message.fromUser?.userId,
-                  currentUser: user._id,
-                  isFromCurrentUser,
-                  sender: message.sender
-                });
-                
+              {messages.map((message, index) => {
+                // Normalize fallback fields to avoid undefined in render
+                const msgId = String(message.messageId || message._id || `temp_${index}_${Date.now()}`);
+                const uniqueKey = `${msgId}_${index}`;
+
+                const fromUser = message.fromUser || message.fromId || (message.sender ? { userId: message.sender } : null);
+                const currentUserId = user?._id || user?.id || user?.userId;
+                const isFromCurrentUser = fromUser && String(fromUser.userId) === String(currentUserId);
+
+                // Lightweight debug - show minimal info
+                console.debug('ChatPage: Message', { id: msgId, fromUser: fromUser?.userId, currentUserId, isFromCurrentUser });
+
                 return (
-                  <div key={message.messageId || message._id || `msg_${Date.now()}`} className={`flex ${isFromCurrentUser ? 'justify-end' : 'justify-start'}`}>
+                  <div key={uniqueKey} className={`flex ${isFromCurrentUser ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl ${isFromCurrentUser ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-900'}`}>
                       {message.messageType === 'image' ? (
                         <div>

@@ -5,6 +5,7 @@ class ChatService {
     this._isConnected = false;
     this.messageCallbacks = [];
     this.errorCallbacks = [];
+    this.openCallbacks = [];
     this.reconnectAttempts = 0;
     this.userId = null;
     this.token = null;
@@ -29,6 +30,10 @@ class ChatService {
         console.log('Connected to WebSocket');
         this._isConnected = true;
         this.reconnectAttempts = 0;
+        // notify open listeners
+        this.openCallbacks.forEach(cb => {
+          try { cb(); } catch (e) { /* ignore */ }
+        });
       };
 
       this.socket.onmessage = (event) => {
@@ -94,6 +99,19 @@ class ChatService {
     this.socket.send(JSON.stringify(message));
   }
 
+  // Send per specification: { type: "CHAT_MESSAGE", conversationId, content }
+  sendChatMessage(conversationId, content, options = {}) {
+    if (!this.socket || !this._isConnected) throw new Error('Not connected');
+    const message = {
+      type: "CHAT_MESSAGE",
+      conversationId: conversationId,
+      content: content,
+      timestamp: Date.now(),
+      ...options
+    };
+    this.socket.send(JSON.stringify(message));
+  }
+
   sendToAdmin(content, options = {}) {
     if (!this.socket || !this._isConnected) throw new Error('Not connected');
     const message = {
@@ -113,6 +131,14 @@ class ChatService {
 
   onError(callback) {
     this.errorCallbacks.push(callback);
+  }
+
+  onOpen(callback) {
+    this.openCallbacks.push(callback);
+  }
+
+  offOpen(callback) {
+    this.openCallbacks = this.openCallbacks.filter(cb => cb !== callback);
   }
 
   offMessage(callback) {

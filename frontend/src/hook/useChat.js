@@ -66,17 +66,32 @@ const useChat = () => {
   // Send message to admin
   const sendToAdmin = useCallback(async (content) => {
     try {
-      chatService.sendToAdmin(content);
+      // Get or create conversation for current user from backend, then send CHAT_MESSAGE
+      const resp = await fetch('/api/conversations/me', {
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+      });
+      const json = await resp.json();
+      const convId = json?.data?.conversationId || null;
+      chatService.sendChatMessage(convId, content);
     } catch (error) {
       console.error('Failed to send message to admin:', error);
       throw error;
     }
   }, []);
 
-  // Load conversation messages
-  const loadConversation = useCallback(async (userId, page = 0, limit = 20) => {
+  // Load conversation messages (by conversationId or current user's conversation)
+  const loadConversation = useCallback(async (conversationId, page = 0, limit = 20) => {
     try {
-      const response = await fetch(`/api/chat/conversation/${userId}?page=${page}&limit=${limit}`, {
+      let convId = conversationId;
+      if (!convId) {
+        const r = await fetch('/api/conversations/me', {
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+        });
+        const j = await r.json();
+        convId = j?.data?.conversationId || null;
+      }
+      if (!convId) return [];
+      const response = await fetch(`/api/conversations/${convId}/messages?page=${page}&limit=${limit}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -95,10 +110,16 @@ const useChat = () => {
     }
   }, [token]);
 
-  // Load user's messages
+  // Load current user's conversation messages
   const loadMessages = useCallback(async (page = 0, limit = 20) => {
     try {
-      const response = await fetch(`/api/chat/messages?page=${page}&limit=${limit}`, {
+      const r = await fetch('/api/conversations/me', {
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+      });
+      const j = await r.json();
+      const convId = j?.data?.conversationId;
+      if (!convId) return [];
+      const response = await fetch(`/api/conversations/${convId}/messages?page=${page}&limit=${limit}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -118,97 +139,26 @@ const useChat = () => {
     }
   }, [token]);
 
-  // Load chat users
+  // Load chat users (admin helper) - not implemented server-side in new API
   const loadChatUsers = useCallback(async () => {
-    try {
-      const response = await fetch('/api/chat/users', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+    console.warn('loadChatUsers: not implemented in new API');
+    return [];
+  }, []);
 
-      if (!response.ok) {
-        throw new Error('Failed to load chat users');
-      }
-
-      const data = await response.json();
-      setChatUsers(data.data);
-      return data.data;
-    } catch (error) {
-      console.error('Failed to load chat users:', error);
-      throw error;
-    }
-  }, [token]);
-
-  // Get unread message count
+  // Get unread message count - not available in new API, return local state
   const getUnreadCount = useCallback(async () => {
-    try {
-      const response = await fetch('/api/chat/unread-count', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+    return unreadCount;
+  }, [unreadCount]);
 
-      if (!response.ok) {
-        throw new Error('Failed to get unread count');
-      }
-
-      const data = await response.json();
-      setUnreadCount(data.data.unreadCount);
-      return data.data.unreadCount;
-    } catch (error) {
-      console.error('Failed to get unread count:', error);
-      throw error;
-    }
-  }, [token]);
-
-  // Mark messages as read
+  // Mark messages as read - local only until API exists
   const markAsRead = useCallback(async (userId) => {
-    try {
-      const response = await fetch(`/api/chat/mark-read/${userId}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+    setUnreadCount(0);
+  }, []);
 
-      if (!response.ok) {
-        throw new Error('Failed to mark messages as read');
-      }
-
-      // Reset unread count for this conversation
-      setUnreadCount(prev => Math.max(0, prev - 1));
-    } catch (error) {
-      console.error('Failed to mark messages as read:', error);
-      throw error;
-    }
-  }, [token]);
-
-  // Delete message
+  // Delete message (local removal only)
   const deleteMessage = useCallback(async (messageId) => {
-    try {
-      const response = await fetch(`/api/chat/messages/${messageId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete message');
-      }
-
-      // Remove message from local state
-      setMessages(prev => prev.filter(msg => msg.id !== messageId));
-    } catch (error) {
-      console.error('Failed to delete message:', error);
-      throw error;
-    }
-  }, [token]);
+    setMessages(prev => prev.filter(msg => msg.id !== messageId));
+  }, []);
 
   // Clear messages (for cleanup)
   const clearMessages = useCallback(() => {

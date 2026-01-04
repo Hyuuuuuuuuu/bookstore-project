@@ -502,47 +502,35 @@ export const downloadAPI = {
 };
 
 export const chatAPI = {
-  // Get or create conversation
+  // Conversation API (new)
+  // Get or create conversation for current user
   getOrCreateConversation: () =>
-    axiosClient.get('/chat/conversation'),
+    axiosClient.get('/conversations/me'),
 
-  // Get admin conversations
+  // Get admin conversations (admin/staff)
   getAdminConversations: (page = 1, limit = 10) =>
-    axiosClient.get(`/chat/admin/chats?page=${page}&limit=${limit}`),
+    axiosClient.get(`/conversations/admin?page=${page}&limit=${limit}`),
 
-  // Get conversation info
-  getConversationInfo: (conversationId) =>
-    axiosClient.get(`/chat/admin/chats/${conversationId}`),
-
-  // Get conversation messages (for admin)
+  // Get conversation messages
   getConversationMessages: (conversationId, page = 1, limit = 50) =>
-    axiosClient.get(`/messages/conversation/${conversationId}?page=${page}&limit=${limit}`),
+    axiosClient.get(`/conversations/${conversationId}/messages?page=${page}&limit=${limit}`),
 
-  // Get conversation messages (for user)
+  // Get conversation messages (for user) - alias
   getUserConversationMessages: (conversationId, page = 1, limit = 50) =>
-    axiosClient.get(`/chat/messages?conversationId=${conversationId}&page=${page}&limit=${limit}`),
+    axiosClient.get(`/conversations/${conversationId}/messages?page=${page}&limit=${limit}`),
 
-  // Send message
-  sendMessage: (messageData) =>
-    axiosClient.post('/chat/messages', messageData),
-
-  // Upload image for chat
+  // Upload image for chat (legacy)
   uploadImage: (formData) =>
     axiosClient.post('/chat/upload-image', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     }),
 
-  // Mark message as read
-  markAsRead: (messageId) =>
-    axiosClient.patch(`/chat/messages/${messageId}/read`),
+  // Legacy / compatibility placeholders (not used)
+  sendMessage: (messageData) =>
+    axiosClient.post('/messages', messageData),
 
-  // Mark conversation as read
-  markConversationAsRead: (conversationId) =>
-    axiosClient.patch(`/chat/conversations/${conversationId}/read`),
-
-  // Get unread count
   getUnreadCount: () =>
-    axiosClient.get('/chat/unread-count'),
+    axiosClient.get('/conversations/unread-count'),
 };
 
 // Address API
