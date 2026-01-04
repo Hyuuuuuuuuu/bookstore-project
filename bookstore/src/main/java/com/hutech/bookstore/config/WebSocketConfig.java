@@ -18,7 +18,6 @@ public class WebSocketConfig implements WebSocketConfigurer {
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        // Register the "/ws-chat" endpoint for chat functionality
         registry.addHandler(chatWebSocketHandler, "/ws-chat")
                 .setAllowedOrigins("*");
     }

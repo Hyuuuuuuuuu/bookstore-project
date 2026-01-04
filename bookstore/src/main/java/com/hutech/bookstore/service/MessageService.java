@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -119,6 +120,57 @@ public class MessageService {
         Long minId = Math.min(userId1, userId2);
         Long maxId = Math.max(userId1, userId2);
         return minId + "_" + maxId;
+    }
+
+    public User findUserById(Long userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+    }
+
+    public List<Map<String, Object>> getAdminConversations(Long adminId, int page, int limit) {
+        // Get all conversations where admin is involved
+        Pageable pageable = PageRequest.of(0, 1000, Sort.by("createdAt").descending()); // Get many messages to group
+        List<Message> adminMessages = messageRepository.findByFromUser_IdOrToUser_IdAndIsDeletedFalse(adminId, adminId, pageable).getContent();
+
+        // Group by conversationId and get latest message for each
+        Map<String, Message> latestMessagesByConversation = adminMessages.stream()
+                .collect(Collectors.toMap(
+                        Message::getConversationId,
+                        msg -> msg,
+                        (msg1, msg2) -> msg1.getCreatedAt().isAfter(msg2.getCreatedAt()) ? msg1 : msg2
+                ));
+
+        // Convert to response format
+        return latestMessagesByConversation.values().stream()
+                .sorted((m1, m2) -> m2.getCreatedAt().compareTo(m1.getCreatedAt())) // Sort by latest first
+                .skip((page - 1) * limit)
+                .limit(limit)
+                .map(message -> {
+                    // Determine the other user (not admin) with null checks
+                    User fromUser = message.getFromUser();
+                    User toUser = message.getToUser();
+
+                    if (fromUser == null || toUser == null) {
+                        // Skip messages with missing user data
+                        return null;
+                    }
+
+                    User otherUser = fromUser.getId().equals(adminId) ? toUser : fromUser;
+
+                    return Map.of(
+                            "conversationId", message.getConversationId(),
+                            "user", Map.of(
+                                    "userId", otherUser.getId(),
+                                    "name", otherUser.getName(),
+                                    "email", otherUser.getEmail(),
+                                    "avatar", otherUser.getAvatar()
+                            ),
+                            "lastMessage", convertToDTO(message),
+                            "lastMessageTime", message.getCreatedAt()
+                    );
+                })
+                .filter(java.util.Objects::nonNull) // Remove null entries
+                .collect(Collectors.toList());
     }
 
     public MessageResponseDTO convertToDTO(Message message) {

@@ -49,6 +49,9 @@ public class SecurityConfig {
                 // Permit WebSocket/SockJS endpoints
                 .requestMatchers("/socket.io/**").permitAll()
                 .requestMatchers("/ws/**").permitAll()
+                // WebSocket endpoint used by frontend
+                .requestMatchers("/ws-chat").permitAll()
+                .requestMatchers("/ws-chat/**").permitAll()
                 // Payment methods endpoint - public
                 .requestMatchers(HttpMethod.GET, "/api/payments/methods").permitAll()
                 // Favorites, Cart, Orders, Payments, Addresses endpoints require authentication

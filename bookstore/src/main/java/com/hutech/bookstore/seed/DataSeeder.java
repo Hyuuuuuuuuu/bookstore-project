@@ -248,8 +248,8 @@ public class DataSeeder implements CommandLineRunner {
         if (clearExisting) {
             // Reset mode: Tạo lại tất cả users
             List<User> users = Arrays.asList(
-                createUser("Admin User", "Nguyễn Văn Admin", "admin@bookstore.com", 
-                    "admin123", "0323456789", "123 Admin Street, Ho Chi Minh City", 
+                createUserWithId(999L, "Admin User", "Nguyễn Văn Admin", "admin@bookstore.com",
+                    "admin123", "0323456789", "123 Admin Street, Ho Chi Minh City",
                     adminRole, true, User.UserStatus.ACTIVE),
                 createUser("Staff User", "Lê Văn Staff", "staff@bookstore.com", 
                     "staff123", "0123456789", "789 Staff Road, Ho Chi Minh City", 
@@ -268,8 +268,8 @@ public class DataSeeder implements CommandLineRunner {
             List<User> usersToCreate = new ArrayList<>();
             
             if (userRepository.findByEmailAndIsDeletedFalse("admin@bookstore.com").isEmpty()) {
-                usersToCreate.add(createUser("Admin User", "Nguyễn Văn Admin", "admin@bookstore.com", 
-                    "admin123", "0323456789", "123 Admin Street, Ho Chi Minh City", 
+                usersToCreate.add(createUserWithId(999L, "Admin User", "Nguyễn Văn Admin", "admin@bookstore.com",
+                    "admin123", "0323456789", "123 Admin Street, Ho Chi Minh City",
                     adminRole, true, User.UserStatus.ACTIVE));
             }
             if (userRepository.findByEmailAndIsDeletedFalse("staff@bookstore.com").isEmpty()) {
@@ -298,7 +298,7 @@ public class DataSeeder implements CommandLineRunner {
     }
 
     private User createUser(String name, String fullName, String email, String password,
-                           String phone, String address, Role role, boolean emailVerified, 
+                           String phone, String address, Role role, boolean emailVerified,
                            User.UserStatus status) {
         User user = new User();
         user.setName(name);
@@ -311,6 +311,14 @@ public class DataSeeder implements CommandLineRunner {
         user.setIsEmailVerified(emailVerified);
         user.setStatus(status);
         user.setIsActive(status == User.UserStatus.ACTIVE);
+        return user;
+    }
+
+    private User createUserWithId(Long id, String name, String fullName, String email, String password,
+                                 String phone, String address, Role role, boolean emailVerified,
+                                 User.UserStatus status) {
+        User user = createUser(name, fullName, email, password, phone, address, role, emailVerified, status);
+        user.setId(id);
         return user;
     }
 
