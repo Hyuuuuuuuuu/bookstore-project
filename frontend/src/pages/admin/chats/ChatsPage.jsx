@@ -86,23 +86,10 @@ const ChatsPage = () => {
         setConversations(prev => {
           const idx = prev.findIndex(c => c.conversationId === conversationId)
           if (idx === -1) {
-          // Add new conversation
-          const newConv = {
-            conversationId,
-            user: {
-              userId: msg.sender,
-              name: msg.sender === '1' ? 'Admin' : 'User',
-              email: msg.sender === '1' ? 'admin@bookstore.com' : 'user@bookstore.com'
-            },
-            lastMessage: convertedMessage.text,
-            lastMessageTime: convertedMessage.timestamp,
-            messages: [convertedMessage]
-          }
-          // auto-select new conversation if none selected
-          if (!selectedConversationRef.current) {
-            setSelectedConversation(newConv)
-          }
-          return [...prev, newConv]
+            // Do NOT create a new conversation from incoming message on admin side.
+            // Admin view must only show conversations returned by API.
+            console.warn('Incoming message for unknown conversation (ignored in admin list):', conversationId)
+            return prev
           } else {
             // Update existing conversation
             const copy = [...prev]
@@ -110,12 +97,14 @@ const ChatsPage = () => {
               ...copy[idx],
               lastMessage: convertedMessage.text,
               lastMessageTime: convertedMessage.timestamp,
-              messages: [...(copy[idx].messages || []), convertedMessage]
+              messages: [...(copy[idx].messages || []), convertedMessage],
+              // mark unread if admin is not viewing this conversation
+              unread: !(selectedConversationRef.current && String(selectedConversationRef.current.conversationId) === String(conversationId))
             }
-          // if this is the currently selected conversation, append to messages pane
-          if (selectedConversationRef.current && selectedConversationRef.current.conversationId === conversationId) {
-            setMessages(prevMsgs => [...prevMsgs, convertedMessage])
-          }
+            // if this is the currently selected conversation, append to messages pane
+            if (selectedConversationRef.current && String(selectedConversationRef.current.conversationId) === String(conversationId)) {
+              setMessages(prevMsgs => [...prevMsgs, convertedMessage])
+            }
             return copy
           }
         })
@@ -168,8 +157,21 @@ const ChatsPage = () => {
       try {
         const response = await chatAPI.getAdminConversations()
         const conversations = response.data.data.conversations || []
-        setConversations(conversations)
+        // Compute unread flag using local last-seen timestamps
+        const rawLastSeen = localStorage.getItem('admin_conv_last_seen') || '{}'
+        let lastSeenMap = {}
+        try { lastSeenMap = JSON.parse(rawLastSeen) } catch (e) { lastSeenMap = {} }
+        const convsWithFlags = conversations.map(c => {
+          const lastMsgTs = c.lastMessageTime ? new Date(c.lastMessageTime).getTime() : 0
+          const seenTs = lastSeenMap[c.conversationId] ? new Date(lastSeenMap[c.conversationId]).getTime() : 0
+          return { ...c, unread: lastMsgTs > seenTs }
+        })
+        setConversations(convsWithFlags)
         conversationsLoadedRef.current = true
+        // Auto-select first conversation if any and none selected yet
+        if (conversations.length > 0 && !selectedConversationRef.current) {
+          setSelectedConversation(convsWithFlags[0])
+        }
         
         // FIX: Không join tất cả conversations khi load list
         // Chỉ join khi select conversation để tránh duplicate
@@ -476,35 +478,8 @@ const ChatsPage = () => {
     if (!newMessage.trim() || !connected || !selectedConversation) return
 
     try {
-      // FIX: Đơn giản hóa - loại bỏ phân biệt role, chỉ dùng userId
-      // Thêm tin nhắn vào state ngay lập tức (Optimistic UI)
-      const tempMessage = {
-        messageId: `temp_${Date.now()}`,
-        text: newMessage.trim(),
-        timestamp: new Date(),
-        isRead: false,
-        messageType: 'text',
-        imageUrl: null,
-        fromUser: {
-          userId: user._id,
-          name: user.name,
-          email: user.email,
-          avatar: user.avatar
-        },
-        toUser: selectedConversation.user ? {
-          userId: selectedConversation.user.userId,
-          name: selectedConversation.user.name,
-          email: selectedConversation.user.email,
-          avatar: selectedConversation.user.avatar
-        } : null
-      }
-      
-      // FIX: Chiến lược B - Thêm temp message vào state (Optimistic UI)
-      // Lưu ý: Khi nhận lại từ socket, logic deduplication sẽ thay thế temp message
-      setMessages(prev => [...prev, tempMessage])
-      scrollToBottom()
-
-      // Send via WebSocket
+      // Do NOT add optimistic temp message on admin side.
+      // Send via WebSocket; UI will update when server echoes saved message.
       const convId = selectedConversation.conversationId || selectedConversation._id
       const targetUserId = selectedConversation.user?.userId
       try {
@@ -519,9 +494,6 @@ const ChatsPage = () => {
       }
 
       setNewMessage('')
-      
-      // Stop typing indicator
-      // typing events not implemented for STOMP here
     } catch (error) {
       console.error('Error sending message:', error)
       alert('Có lỗi xảy ra khi gửi tin nhắn!')
@@ -555,34 +527,7 @@ const ChatsPage = () => {
       const uploadResponse = await chatAPI.uploadImage(formData)
       const imageUrl = uploadResponse.data.data.imageUrl
 
-      // FIX: Đơn giản hóa - loại bỏ phân biệt role, chỉ dùng userId
-      // Thêm tin nhắn ảnh vào state ngay lập tức (Optimistic UI)
-      const tempImageMessage = {
-        messageId: `temp_${Date.now()}`,
-        text: 'Đã gửi ảnh',
-        timestamp: new Date(),
-        isRead: false,
-        messageType: 'image',
-        imageUrl: imageUrl,
-        fromUser: {
-          userId: user._id,
-          name: user.name,
-          email: user.email,
-          avatar: user.avatar
-        },
-        toUser: selectedConversation.user ? {
-          userId: selectedConversation.user.userId,
-          name: selectedConversation.user.name,
-          email: selectedConversation.user.email,
-          avatar: selectedConversation.user.avatar
-        } : null
-      }
-      
-      // FIX: Chiến lược B - Thêm temp image message vào state (Optimistic UI)
-      setMessages(prev => [...prev, tempImageMessage])
-      scrollToBottom()
-
-      // Send image message via WebSocket
+      // Send image message via WebSocket (don't add optimistic image on admin UI)
       const convId = selectedConversation.conversationId || selectedConversation._id
       const targetUserId = selectedConversation.user?.userId
       if (targetUserId) {
@@ -680,7 +625,16 @@ const ChatsPage = () => {
                   {conversations.map((conversation, idx) => (
                     <div
                       key={`${conversation.conversationId ?? conversation.user?.userId ?? 'conv'}_${idx}`}
-                      onClick={() => setSelectedConversation(conversation)}
+                      onClick={() => {
+                        // select and clear unread flag for this conversation
+                        setSelectedConversation(conversation)
+                        setConversations(prev => prev.map(c => {
+                          if (String(c.conversationId) === String(conversation.conversationId)) {
+                            return { ...c, unread: false }
+                          }
+                          return c
+                        }))
+                      }}
                       className={`p-3 cursor-pointer hover:bg-gray-50 ${
                         selectedConversation?.conversationId === conversation.conversationId ? 'bg-blue-50 border-r-2 border-blue-500' : ''
                       }`}
@@ -692,6 +646,7 @@ const ChatsPage = () => {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">
                           {conversation.user?.name || 'User'}
+                          {conversation.unread && <span className="ml-2 inline-block w-2 h-2 rounded-full bg-red-500" title="Chưa đọc"></span>}
                         </p>
                           <p className="text-xs text-gray-500 truncate">
                             {conversation.messages?.[0]?.text || 'Chưa có tin nhắn'}
@@ -750,9 +705,11 @@ const ChatsPage = () => {
                         // Determine sender id/type robustly
                         const senderId = message.senderId || message.fromUser?.userId || message.raw?.fromUserId || message.raw?.senderId || message.sender || message.fromId || null;
                         const senderType = (message.senderRole || message.senderRole || message.raw?.senderType || message.raw?.sender_type || '').toString().toUpperCase();
-                        const currentUserId = user?._id || user?.id || user?.userId;
-                        // On admin UI: messages sent by support (senderType === 'SUPPORT') should appear on right.
-                        const isFromCurrentUser = (senderId && String(senderId) === String(currentUserId)) || (senderType === 'SUPPORT');
+                        const currentUserId = user?._1d || user?._id || user?.id || user?.userId;
+                        // Message is from current admin/staff only when senderId matches current user's id.
+                        const isFromCurrentUser = senderId && String(senderId) === String(currentUserId);
+                        // Message is from other support (not current user) when senderType === 'SUPPORT' and senderId !== currentUserId
+                        const isFromOtherSupport = senderType === 'SUPPORT' && !(senderId && String(senderId) === String(currentUserId));
                         
                   // FIX: Render message với key unique
                   // Tham khảo ChatWidget.jsx line 408: `key={message.messageId || message._id || `msg_${Date.now()}`}`
@@ -763,10 +720,12 @@ const ChatsPage = () => {
                       className={`flex ${isFromCurrentUser ? 'justify-end' : 'justify-start'}`}
                     >
                             <div
-                              className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                            className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
                                 isFromCurrentUser
                                   ? 'bg-blue-500 text-white'
-                                  : 'bg-gray-100 text-gray-900'
+                                  : isFromOtherSupport
+                                    ? 'bg-green-200 text-gray-900'
+                                    : 'bg-gray-100 text-gray-900'
                               }`}
                             >
                             {message.messageType === 'image' ? (
@@ -867,7 +826,7 @@ const ChatsPage = () => {
               <div className="flex-1 flex items-center justify-center text-gray-500">
                 <div className="text-center">
                   <div className="text-4xl mb-4">💬</div>
-                  <p>Chọn một cuộc trò chuyện để bắt đầu</p>
+                  <p>{conversations.length === 0 ? 'Hiện tại chưa có hỗ trợ' : 'Chọn một cuộc trò chuyện để bắt đầu'}</p>
                 </div>
               </div>
             )}
