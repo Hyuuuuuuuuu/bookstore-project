@@ -9,6 +9,7 @@ const ChatsPage = () => {
   const [conversations, setConversations] = useState([]);
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [messages, setMessages] = useState([]);
+  const incomingBufferRef = useRef([]); // buffer for messages before UI ready
   const [loading, setLoading] = useState(true);
   const [newMessage, setNewMessage] = useState('');
   const [editingMessageId, setEditingMessageId] = useState(null);
@@ -43,26 +44,71 @@ const ChatsPage = () => {
 
     try {
       // Connect to WebSocket with admin user ID
-      chatService.connect(token, user._id)
+      const userId = user?._id || user?.id || user?.userId;
+      chatService.connect(token, userId)
       setConnected(chatService.isConnected)
 
       // global message handler for admin
       const handleIncoming = (msg) => {
-        // Expect msg to be message DTO with conversationId
-        if (!msg) return
+        // Only handle chat messages; ignore control frames (PING, PONG, etc.)
+        if (!msg || msg.type !== 'CHAT') return
+        // Buffer if user or conversations not ready yet
+        if (!user || !conversationsLoadedRef.current) {
+          incomingBufferRef.current.push(msg)
+          if (incomingBufferRef.current.length > 200) incomingBufferRef.current.shift()
+          return
+        }
 
-        // If conversation exists in list, update last message preview/time
+        // Convert to expected format for admin UI
+        const convertedMessage = {
+          messageId: `ws_${Date.now()}_${Math.random()}`,
+          text: msg.content,
+          timestamp: new Date(msg.timestamp || Date.now()),
+          sender: msg.sender,
+          fromUser: {
+            userId: msg.sender,
+            name: msg.sender === '1' ? 'Admin' : 'User',
+            email: msg.sender === '1' ? 'admin@bookstore.com' : 'user@bookstore.com'
+          },
+          toUser: {
+            userId: msg.toUserId,
+            name: msg.toUserId === 'admin' ? 'Admin' : 'User',
+            email: msg.toUserId === 'admin' ? 'admin@bookstore.com' : 'user@bookstore.com'
+          },
+          messageType: 'text',
+          isRead: false
+        }
+
+        // Generate conversation ID
+        const conversationId = generateConversationId(msg.sender, msg.toUserId)
+
+        // Update conversations list
         setConversations(prev => {
-          const conversationId = msg.conversationId || generateConversationId(msg.fromUser?.userId, msg.toUser?.userId)
           const idx = prev.findIndex(c => c.conversationId === conversationId)
-          if (idx === -1) return prev
-          const copy = [...prev]
-          copy[idx] = {
-            ...copy[idx],
-            lastMessageTime: msg.timestamp || new Date(),
-            messages: [...(copy[idx].messages || []), msg]
+          if (idx === -1) {
+            // Add new conversation
+            return [...prev, {
+              conversationId,
+              user: {
+                userId: msg.sender,
+                name: msg.sender === '1' ? 'Admin' : 'User',
+                email: msg.sender === '1' ? 'admin@bookstore.com' : 'user@bookstore.com'
+              },
+              lastMessage: convertedMessage.text,
+              lastMessageTime: convertedMessage.timestamp,
+              messages: [convertedMessage]
+            }]
+          } else {
+            // Update existing conversation
+            const copy = [...prev]
+            copy[idx] = {
+              ...copy[idx],
+              lastMessage: convertedMessage.text,
+              lastMessageTime: convertedMessage.timestamp,
+              messages: [...(copy[idx].messages || []), convertedMessage]
+            }
+            return copy
           }
-          return copy
         })
       }
 
@@ -73,8 +119,20 @@ const ChatsPage = () => {
 
       chatService.onMessage(handleIncoming)
       chatService.onError(handleError)
+      const handleVisibility = () => {
+        if (document.visibilityState === 'visible' && token && user) {
+          const userId = user?._id || user?.id || user?.userId;
+          if (!chatService.isConnected) {
+            chatService.connect(token, userId)
+            setConnected(chatService.isConnected)
+          }
+        }
+      }
+
+      window.addEventListener('visibilitychange', handleVisibility)
 
       return () => {
+        window.removeEventListener('visibilitychange', handleVisibility)
         chatService.offMessage(handleIncoming)
         chatService.offError(handleError)
         chatService.disconnect()
@@ -101,6 +159,49 @@ const ChatsPage = () => {
         
         // FIX: Không join tất cả conversations khi load list
         // Chỉ join khi select conversation để tránh duplicate
+      // Flush any buffered incoming messages now that conversations are loaded
+      if (incomingBufferRef.current.length > 0) {
+        const buffered = incomingBufferRef.current.splice(0)
+        // Process buffered chat messages: update conversations list/messages
+        buffered.forEach(m => {
+          try {
+            if (m.type !== 'CHAT') return
+            const conversationId = generateConversationId(m.sender, m.toUserId)
+            const convertedMessage = {
+              messageId: `ws_${Date.now()}_${Math.random()}`,
+              text: m.content,
+              timestamp: new Date(m.timestamp || Date.now()),
+              fromUser: { userId: m.sender },
+              toUser: { userId: m.toUserId },
+              messageType: 'text',
+              isRead: false
+            }
+            setConversations(prev => {
+              const idx = prev.findIndex(c => c.conversationId === conversationId)
+              if (idx === -1) {
+                return [...prev, {
+                  conversationId,
+                  user: { userId: m.sender, name: `User ${m.sender}`, email: '' },
+                  lastMessage: convertedMessage.text,
+                  lastMessageTime: convertedMessage.timestamp,
+                  messages: [convertedMessage]
+                }]
+              } else {
+                const copy = [...prev]
+                copy[idx] = {
+                  ...copy[idx],
+                  lastMessage: convertedMessage.text,
+                  lastMessageTime: convertedMessage.timestamp,
+                  messages: [...(copy[idx].messages || []), convertedMessage]
+                }
+                return copy
+              }
+            })
+          } catch (e) {
+            console.error('Error processing buffered message', e)
+          }
+        })
+      }
       } catch (error) {
         console.error('Error loading conversations:', error)
       } finally {
@@ -203,114 +304,48 @@ const ChatsPage = () => {
     if (!connected) return
 
     const handleNewMessage = (data) => {
-      // Data is already the message object from raw WebSocket
+      // Handle new standardized WebSocket message format
       if (!data) return
 
-      // FIX: Normalize messageId ngay từ đầu để check duplicate
-      const messageId = String(data.messageId || '')
-
-      // FIX: Kiểm tra duplicate NGAY LẦN ĐẦU (trước khi xử lý logic phức tạp)
-      if (messageId && !messageId.startsWith('temp_')) {
-        if (processingMessagesRef.current.has(messageId)) {
-          return // Bỏ qua message này hoàn toàn
-        }
-
-        // Đánh dấu messageId đang được xử lý
-        processingMessagesRef.current.add(messageId)
-
-        // Cleanup sau 1 giây (đảm bảo không bị stuck)
-        setTimeout(() => {
-          processingMessagesRef.current.delete(messageId)
-        }, 1000)
+      // Convert WebSocket message to UI format
+      const uiMessage = {
+        messageId: `ws_${Date.now()}_${Math.random()}`,
+        text: data.content,
+        timestamp: new Date(data.timestamp || Date.now()),
+        sender: data.sender,
+        fromUser: {
+          userId: data.sender,
+          name: data.sender === '1' ? 'Admin' : 'User',
+          email: data.sender === '1' ? 'admin@bookstore.com' : 'user@bookstore.com'
+        },
+        toUser: {
+          userId: data.toUserId,
+          name: data.toUserId === 'admin' ? 'Admin' : 'User',
+          email: data.toUserId === 'admin' ? 'admin@bookstore.com' : 'user@bookstore.com'
+        },
+        messageType: 'text',
+        isRead: false
       }
 
-      // Lấy selectedConversation hiện tại từ ref (luôn là giá trị mới nhất)
+      // Get current conversation
       const current = selectedConversationRef.current
-      const currentConversationId = current?.conversationId || current?._id
+      if (!current) return
 
-      // Generate conversation ID if not provided
-      const conversationId = data.conversationId || generateConversationId(data.fromUser?.userId, data.toUser?.userId)
+      // Generate conversation ID from message
+      const messageConversationId = generateConversationId(data.sender, data.toUserId)
 
-      // Kiểm tra xem tin nhắn này có thuộc conversation hiện tại không
-      const isForCurrentConversation = conversationId === currentConversationId
-
-      if (!isForCurrentConversation && current) {
-        // Cập nhật conversation list nếu có tin nhắn mới từ conversation khác
+      // Only add message if it belongs to current conversation
+      if (messageConversationId !== current.conversationId) {
         return
       }
 
-      // Nếu không có conversation được chọn, không hiển thị message
-      if (!current) {
-        return
-      }
+      // Add message to current conversation
+      setMessages(prev => [...prev, uiMessage])
 
-      // FIX: Đơn giản hóa - loại bỏ phân biệt role, chỉ dùng userId
-      const isFromCurrentUser = data.fromUser?.userId?.toString() === user?._id?.toString()
-
-      // Kiểm tra xem tin nhắn này có phải là tin nhắn temp không
-      const isTempMessage = data.messageId?.startsWith('temp_')
-      if (isTempMessage) {
-        return
-      }
-
-      setMessages(prev => {
-        // Normalize messageId để so sánh (convert về string)
-        const newMessageId = String(data.messageId || '')
-
-        // BƯỚC 1: Kiểm tra duplicate dựa trên messageId (CHÍNH XÁC NHẤT)
-        if (newMessageId && !newMessageId.startsWith('temp_')) {
-          if (messageIdsSetRef.current.has(newMessageId)) {
-            processingMessagesRef.current.delete(newMessageId)
-            return prev
-          }
-        }
-
-        // FIX: Kiểm tra duplicate trong state array (fallback)
-        const exists = prev.some(msg => {
-          const msgId = String(msg.messageId || '')
-          if (msgId.startsWith('temp_')) return false
-          if (msgId === '' || newMessageId === '') return false
-          return msgId === newMessageId
-        })
-
-        if (exists) {
-          if (newMessageId && !newMessageId.startsWith('temp_')) {
-            messageIdsSetRef.current.add(newMessageId)
-            processingMessagesRef.current.delete(newMessageId)
-          }
-          return prev
-        }
-
-        // BƯỚC 2: Thay thế temp message nếu có
-        const tempMessageIndex = prev.findIndex(msg => {
-          if (!String(msg.messageId || '').startsWith('temp_')) return false
-
-          const textMatch = String(msg.text || '') === String(data.text || '')
-          const isFromSameUser = String(msg.fromUser?.userId || '') === String(data.fromUser?.userId || '')
-
-          return textMatch && isFromSameUser
-        })
-
-        if (tempMessageIndex !== -1) {
-          const newMessages = [...prev]
-          newMessages[tempMessageIndex] = data
-
-          if (newMessageId && !newMessageId.startsWith('temp_')) {
-            messageIdsSetRef.current.add(newMessageId)
-            processingMessagesRef.current.delete(newMessageId)
-          }
-
-          return newMessages
-        }
-
-        // BƯỚC 3: Thêm message mới
-        if (newMessageId && !newMessageId.startsWith('temp_')) {
-          messageIdsSetRef.current.add(newMessageId)
-          processingMessagesRef.current.delete(newMessageId)
-        }
-
-        return [...prev, data]
-      })
+      // Scroll to bottom
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      }, 100)
 
       // Scroll to bottom sau khi thêm message
       setTimeout(() => {
