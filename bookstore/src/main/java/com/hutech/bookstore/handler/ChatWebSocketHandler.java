@@ -68,6 +68,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
         Long conversationId = node.has("conversationId") && !node.get("conversationId").isNull() ? node.get("conversationId").asLong() : null;
         String content = node.has("content") ? node.get("content").asText() : "";
+        String orderCode = node.has("orderCode") && !node.get("orderCode").isNull() ? node.get("orderCode").asText() : null;
 
         // Role-specific rules
         if ("USER".equalsIgnoreCase(role)) {
@@ -100,12 +101,13 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             System.out.println("Saved message id=" + saved.getId() + " conversation=" + conversation.getId());
 
             // build outgoing message
-            Map<String, Object> out = Map.of(
-                    "type", "CHAT_MESSAGE",
-                    "conversationId", conversation.getId(),
-                    "sender", Map.of("id", userId, "role", "USER"),
-                    "content", content,
-                    "timestamp", msg.getCreatedAt().toString()
+            Map<String, Object> out = Map.ofEntries(
+                    Map.entry("type", "CHAT_MESSAGE"),
+                    Map.entry("conversationId", conversation.getId()),
+                    Map.entry("sender", Map.of("id", userId, "role", "USER")),
+                    Map.entry("content", content),
+                    Map.entry("timestamp", msg.getCreatedAt().toString()),
+                    Map.entry("orderCode", orderCode)
             );
             String outJson = objectMapper.writeValueAsString(out);
 
@@ -144,12 +146,13 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             Message saved = messageRepository.save(msg);
             System.out.println("Saved support message id=" + saved.getId() + " conversation=" + conversation.getId());
 
-            Map<String, Object> out = Map.of(
-                    "type", "CHAT_MESSAGE",
-                    "conversationId", conversation.getId(),
-                    "sender", Map.of("id", userId, "role", "SUPPORT"),
-                    "content", content,
-                    "timestamp", msg.getCreatedAt().toString()
+            Map<String, Object> out = Map.ofEntries(
+                    Map.entry("type", "CHAT_MESSAGE"),
+                    Map.entry("conversationId", conversation.getId()),
+                    Map.entry("sender", Map.of("id", userId, "role", "SUPPORT")),
+                    Map.entry("content", content),
+                    Map.entry("timestamp", msg.getCreatedAt().toString()),
+                    Map.entry("orderCode", orderCode)
             );
             String outJson = objectMapper.writeValueAsString(out);
 

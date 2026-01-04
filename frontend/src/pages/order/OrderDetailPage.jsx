@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { orderAPI } from '../../services/apiService';
+import { orderAPI, bookAPI } from '../../services/apiService';
 import PageLayout from '../../layouts/PageLayout';
 
 const OrderDetailPage = () => {
@@ -17,7 +17,10 @@ const OrderDetailPage = () => {
         setLoading(true);
         const response = await orderAPI.getOrder(orderId);
         console.log('📦 Order detail response:', response);
-        setOrder(response?.data?.data || response?.data);
+        const fetched = response?.data?.data || response?.data;
+        // enrich order items with book details if needed
+        const enriched = await enrichOrderItems(fetched);
+        setOrder(enriched);
         setLoading(false);
       } catch (error) {
         console.error('❌ Error fetching order detail:', error);
@@ -30,6 +33,34 @@ const OrderDetailPage = () => {
       fetchOrderDetail();
     }
   }, [orderId]);
+
+  // Enrich order items: if item.bookId is an id (string/number), fetch book detail
+  const enrichOrderItems = async (orderData) => {
+    if (!orderData) return orderData;
+    const items = orderData.orderItems || orderData.items || [];
+    if (!items.length) return orderData;
+
+    const enrichedItems = await Promise.all(items.map(async (item) => {
+      try {
+        // if bookId is an object with title, no need to fetch
+        const bookRef = item.bookId || item.book || null;
+        if (bookRef && typeof bookRef === 'object' && (bookRef.title || bookRef.name)) {
+          return { ...item, bookDetails: bookRef };
+        }
+        const bookId = typeof bookRef === 'string' || typeof bookRef === 'number' ? bookRef : item.bookId || item.book;
+        if (bookId) {
+          const res = await bookAPI.getBook(bookId);
+          const book = res?.data?.data || res?.data || null;
+          return { ...item, bookDetails: book };
+        }
+      } catch (e) {
+        console.warn('Failed to fetch book details for item', item, e);
+      }
+      return { ...item, bookDetails: null };
+    }));
+
+    return { ...orderData, orderItems: enrichedItems };
+  };
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('vi-VN', {
@@ -99,29 +130,36 @@ const OrderDetailPage = () => {
   };
 
   const handleContactSupport = () => {
-    // Tạo thông tin đơn hàng để gửi cho admin
+    // Build robust order info for support context (fallbacks for various backend shapes)
     const orderInfo = {
-      orderId: order._id,
-      orderCode: order.orderCode || order._id,
-      status: order.status,
-      totalPrice: order.totalPrice,
-      discountAmount: order.discountAmount || 0,
-      finalPrice: order.totalPrice - (order.discountAmount || 0),
-      paymentMethod: order.paymentMethod,
-      createdAt: order.createdAt,
-      items: order.orderItems?.map(item => ({
-        title: item.bookId?.title || 'Sách không xác định',
-        author: item.bookId?.author || 'Tác giả không xác định',
-        quantity: item.quantity,
-        price: item.priceAtPurchase
-      })) || [],
-      shippingAddress: order.shippingAddress
+      orderId: order._id || order.id || null,
+      orderCode: order.orderCode || order.code || order._id || order.id || null,
+      status: order.status || null,
+      totalPrice: order.totalPrice || order.totalAmount || order.originalAmount || 0,
+      discountAmount: order.discountAmount || order.discount || 0,
+      finalPrice: (order.totalPrice || order.totalAmount || 0) - (order.discountAmount || order.discount || 0),
+      paymentMethod: order.paymentMethod || order.paymentMethodCode || null,
+      createdAt: order.createdAt || order.created_at || null,
+      items: (order.orderItems || order.items || []).map(item => {
+        const book = item.bookId || item.book || {};
+        return {
+          title: book.title || item.title || 'Sách không xác định',
+          author: book.author || item.author || 'Tác giả không xác định',
+          quantity: item.quantity || item.qty || 1,
+          price: item.priceAtPurchase || item.price || item.unitPrice || 0
+        }
+      }),
+      shippingAddress: order.shippingAddress || order.address || null
     };
 
-    // Lưu thông tin đơn hàng vào localStorage để chat có thể sử dụng
-    localStorage.setItem('supportOrderInfo', JSON.stringify(orderInfo));
-    
-    // Chuyển đến trang chat
+    // Persist to localStorage for ChatPage to pick up
+    try {
+      localStorage.setItem('supportOrderInfo', JSON.stringify(orderInfo));
+    } catch (e) {
+      console.warn('Failed to store supportOrderInfo', e);
+    }
+
+    // Navigate to chat page
     navigate('/chat');
   };
 
@@ -214,49 +252,56 @@ const OrderDetailPage = () => {
                 
                 {order.orderItems && order.orderItems.length > 0 ? (
                   <div className="space-y-4">
-                    {order.orderItems.map((item, index) => (
-                      <div key={index} className="flex items-center space-x-4 p-4 border border-gray-200 rounded-xl">
-                        {/* Book Image */}
-                        <div className="flex-shrink-0">
-                          {item.bookId?.imageUrl ? (
-                            <img 
-                              src={item.bookId.imageUrl.startsWith('http') ? item.bookId.imageUrl : `http://localhost:5000${item.bookId.imageUrl}`}
-                              alt={item.bookId?.title || 'Book'}
-                              className="w-16 h-20 object-cover rounded-xl"
-                              onError={(e) => {
-                                e.target.style.display = 'none';
-                                if (e.target.nextSibling) {
-                                  e.target.nextSibling.style.display = 'block';
-                                }
-                              }}
-                            />
-                          ) : null}
-                          <div className="w-16 h-20 bg-gray-200 rounded-xl flex items-center justify-center" style={{display: item.bookId?.imageUrl ? 'none' : 'flex'}}>
-                            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                            </svg>
+                    {order.orderItems.map((item, index) => {
+                      const book = item.bookDetails || item.bookId || item.book || {};
+                      const imageUrl = book?.imageUrl || book?.image || null;
+                      const title = book?.title || book?.name || item.title || 'Sách không xác định';
+                      const author = book?.author || item.author || 'Tác giả không xác định';
+                      const keyId = item._id || book?.id || book?._id || `idx_${index}`;
+                      return (
+                        <div key={keyId} className="flex items-center space-x-4 p-4 border border-gray-200 rounded-xl">
+                          {/* Book Image */}
+                          <div className="flex-shrink-0">
+                            {imageUrl ? (
+                              <img
+                                src={imageUrl.startsWith('http') ? imageUrl : `http://localhost:5000${imageUrl}`}
+                                alt={title}
+                                className="w-16 h-20 object-cover rounded-xl"
+                                onError={(e) => {
+                                  e.target.style.display = 'none';
+                                  if (e.target.nextSibling) {
+                                    e.target.nextSibling.style.display = 'block';
+                                  }
+                                }}
+                              />
+                            ) : null}
+                            <div className="w-16 h-20 bg-gray-200 rounded-xl flex items-center justify-center" style={{display: imageUrl ? 'none' : 'flex'}}>
+                              <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                              </svg>
+                            </div>
+                          </div>
+
+                          {/* Book Info */}
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-lg font-medium text-gray-900 truncate">
+                              {title}
+                            </h3>
+                            <p className="text-sm text-gray-600">{author}</p>
+                            <p className="text-sm text-gray-500">
+                              Số lượng: {item.quantity || 1} • Giá: {formatCurrency(item.priceAtPurchase || item.price || item.unitPrice || 0)}
+                            </p>
+                          </div>
+
+                          {/* Total Price */}
+                          <div className="text-right">
+                            <p className="text-lg font-semibold text-black">
+                              {formatCurrency((item.priceAtPurchase || item.price || item.unitPrice || 0) * (item.quantity || 1))}
+                            </p>
                           </div>
                         </div>
-                        
-                        {/* Book Info */}
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-lg font-medium text-gray-900 truncate">
-                            {item.bookId?.title || 'Sách không xác định'}
-                          </h3>
-                          <p className="text-sm text-gray-600">{item.bookId?.author || 'Tác giả không xác định'}</p>
-                          <p className="text-sm text-gray-500">
-                            Số lượng: {item.quantity} • Giá: {formatCurrency(item.priceAtPurchase)}
-                          </p>
-                        </div>
-                        
-                        {/* Total Price */}
-                        <div className="text-right">
-                          <p className="text-lg font-semibold text-black">
-                            {formatCurrency(item.priceAtPurchase * item.quantity)}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="text-center py-8">

@@ -9,6 +9,7 @@ const ChatsPage = () => {
   const [conversations, setConversations] = useState([]);
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [selectedOrderCode, setSelectedOrderCode] = useState(null);
   const incomingBufferRef = useRef([]); // buffer for messages before UI ready
   const [loading, setLoading] = useState(true);
   const [newMessage, setNewMessage] = useState('');
@@ -476,20 +477,19 @@ const ChatsPage = () => {
   const handleSendMessage = async (e) => {
     e.preventDefault()
     if (!newMessage.trim() || !connected || !selectedConversation) return
-
     try {
-      // Do NOT add optimistic temp message on admin side.
-      // Send via WebSocket; UI will update when server echoes saved message.
       const convId = selectedConversation.conversationId || selectedConversation._id
       const targetUserId = selectedConversation.user?.userId
+      const options = {}
+      if (selectedOrderCode) options.orderCode = selectedOrderCode
       try {
-        chatService.sendChatMessage(convId, newMessage.trim())
+        chatService.sendChatMessage(convId, newMessage.trim(), options)
       } catch (e) {
         // fallback
         if (targetUserId) {
-          chatService.sendMessage(targetUserId, newMessage.trim())
+          chatService.sendMessage(targetUserId, newMessage.trim(), options)
         } else {
-          chatService.sendToAdmin(newMessage.trim())
+          chatService.sendToAdmin(newMessage.trim(), options)
         }
       }
 
@@ -628,6 +628,9 @@ const ChatsPage = () => {
                       onClick={() => {
                         // select and clear unread flag for this conversation
                         setSelectedConversation(conversation)
+                        // extract order code if present in conversation payload
+                        const oc = conversation.orderCode || conversation.order?.orderCode || conversation.raw?.orderCode || conversation.raw?.order_id || conversation.raw?.orderId || null
+                        setSelectedOrderCode(oc)
                         setConversations(prev => prev.map(c => {
                           if (String(c.conversationId) === String(conversation.conversationId)) {
                             return { ...c, unread: false }
@@ -782,6 +785,19 @@ const ChatsPage = () => {
                 </div>
 
                 <div className="p-4 border-t border-gray-200">
+                  {selectedOrderCode && (
+                    <div className="mb-2 flex items-center space-x-2">
+                      <div className="text-sm text-gray-600">Mã đơn:</div>
+                      <div className="px-2 py-1 bg-gray-100 rounded text-sm">{selectedOrderCode}</div>
+                      <button
+                        type="button"
+                        onClick={() => setNewMessage(prev => `${prev} #${selectedOrderCode} `)}
+                        className="text-sm text-blue-600 hover:underline"
+                      >
+                        Chèn mã đơn
+                      </button>
+                    </div>
+                  )}
                   <form onSubmit={handleSendMessage} className="flex space-x-2">
                     <input
                       type="text"

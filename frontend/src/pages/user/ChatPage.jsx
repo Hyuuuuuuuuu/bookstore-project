@@ -16,6 +16,7 @@ const ChatPage = () => {
   const [uploadingImage, setUploadingImage] = useState(false)
   const [messages, setMessages] = useState([])
   const [adminUser, setAdminUser] = useState(null)
+  const [selectedOrderInfo, setSelectedOrderInfo] = useState(null)
   const messagesEndRef = useRef(null)
   const typingTimeoutRef = useRef(null)
   const fileInputRef = useRef(null)
@@ -157,6 +158,47 @@ const ChatPage = () => {
       setError('Không thể khởi tạo kết nối chat')
     }
   }, [token, user])
+
+  // Restore any order info passed from OrdersListPage (support context)
+  // Restore any order info passed from OrdersListPage (support context)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('supportOrderInfo')
+      if (!raw) return
+      const obj = JSON.parse(raw)
+      setSelectedOrderInfo(obj)
+      // keep in localStorage until we successfully send initial support message
+    } catch (e) {
+      console.warn('Failed to read supportOrderInfo', e)
+    }
+  }, [])
+
+  const initialSupportSentRef = useRef(false)
+
+  // Auto-send initial support message (once) when connected and support info exists
+  useEffect(() => {
+    const trySendInitial = async () => {
+      if (!selectedOrderInfo) return
+      if (!connected) return
+      if (initialSupportSentRef.current) return
+
+      const order = selectedOrderInfo
+      const orderCode = order.orderCode || order.orderId || ''
+      const content = `Yêu cầu hỗ trợ đơn ${orderCode}`
+
+      try {
+        // conversationId may be null; backend will create conversation for user messages
+        chatService.sendChatMessage(conversationId, content, { orderCode })
+        initialSupportSentRef.current = true
+        // remove stored supportOrderInfo to avoid re-sending
+        try { localStorage.removeItem('supportOrderInfo') } catch (e) {}
+      } catch (e) {
+        console.error('Failed to send initial support message', e)
+      }
+    }
+
+    trySendInitial()
+  }, [connected, selectedOrderInfo, conversationId])
 
   // Get or create conversation
   useEffect(() => {
@@ -323,14 +365,16 @@ const ChatPage = () => {
 
       // send via new spec: sendChatMessage with conversationId (backend will create conversation if needed)
       try {
-        chatService.sendChatMessage(conversationId, newMessage.trim())
+        const options = {}
+        if (selectedOrderInfo?.orderCode) options.orderCode = selectedOrderInfo.orderCode
+        chatService.sendChatMessage(conversationId, newMessage.trim(), options)
       } catch (e) {
         // fallback to previous methods if available
         try {
           if (adminUser && adminUser.userId) {
-            chatService.sendMessage(adminUser.userId, newMessage.trim(), { messageType: 'text', conversationId })
+            chatService.sendMessage(adminUser.userId, newMessage.trim(), { messageType: 'text', conversationId, orderCode: selectedOrderInfo?.orderCode })
           } else {
-            chatService.sendToAdmin(newMessage.trim(), { messageType: 'text', conversationId })
+            chatService.sendToAdmin(newMessage.trim(), { messageType: 'text', conversationId, orderCode: selectedOrderInfo?.orderCode })
           }
         } catch (e2) {
           console.error('Fallback send failed', e2)
@@ -421,6 +465,22 @@ const ChatPage = () => {
           </div>
         </div>
       </div>
+
+      {/* Order context (if any) */}
+      {selectedOrderInfo && (
+        <div className="mb-4 p-4 bg-gray-50 border rounded">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm text-gray-500">Đơn hàng</div>
+              <div className="text-lg font-medium">{selectedOrderInfo.orderCode}</div>
+              <div className="text-sm text-gray-600">Tổng: {selectedOrderInfo.finalPrice ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(selectedOrderInfo.finalPrice) : ''}</div>
+            </div>
+            <div>
+              <button onClick={() => setNewMessage(prev => `${prev} #${selectedOrderInfo.orderCode} `)} className="px-3 py-1 bg-blue-50 text-blue-600 rounded">Chèn mã đơn</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Messages */}
       <div className="h-96 overflow-y-auto border border-gray-200 rounded-lg">
