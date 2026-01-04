@@ -20,8 +20,7 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
            "(:method IS NULL OR p.method = :method) AND " +
            "(:search IS NULL OR :search = '' OR " +
            "LOWER(p.transactionCode) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
-           "LOWER(p.order.orderCode) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
-           "LOWER(p.transactionId) LIKE LOWER(CONCAT('%', :search, '%')))")
+           "LOWER(p.order.orderCode) LIKE LOWER(CONCAT('%', :search, '%')))")
     Page<Payment> searchPayments(@Param("search") String search, 
                                 @Param("status") Payment.PaymentStatus status,
                                 @Param("method") Payment.PaymentMethod method,

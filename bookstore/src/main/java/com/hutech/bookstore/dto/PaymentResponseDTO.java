@@ -25,8 +25,6 @@ public class PaymentResponseDTO {
     
     private String status; // Enum as String
     
-    private String transactionId;
-    
     private String paymentUrl;
     
     private String description;
@@ -47,7 +45,6 @@ public class PaymentResponseDTO {
         dto.setAmount(payment.getAmount());
         dto.setMethod(payment.getMethod() != null ? payment.getMethod().name() : null);
         dto.setStatus(payment.getStatus() != null ? payment.getStatus().name() : null);
-        dto.setTransactionId(payment.getTransactionId());
         dto.setPaymentUrl(payment.getPaymentUrl());
         dto.setDescription(payment.getDescription());
         dto.setCreatedAt(payment.getCreatedAt());

@@ -37,9 +37,6 @@ public class Payment {
     @Column(nullable = false)
     private PaymentStatus status = PaymentStatus.PENDING;
 
-    @Column(name = "transaction_id", unique = true)
-    private String transactionId;
-
     @Column(name = "payment_url", length = 1000)
     private String paymentUrl;
 

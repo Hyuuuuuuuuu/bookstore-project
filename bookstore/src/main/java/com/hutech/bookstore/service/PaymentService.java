@@ -50,7 +50,7 @@ public class PaymentService {
         payment.setMethod(Payment.PaymentMethod.COD);
         payment.setStatus(Payment.PaymentStatus.PENDING);
         payment.setDescription(description != null ? description : "Thanh toán khi nhận hàng cho đơn " + order.getOrderCode());
-        payment.setTransactionCode(generateTransactionCode());
+        payment.setTransactionCode(generateTransactionCode(payment.getMethod()));
         
         payment = paymentRepository.save(payment);
         
@@ -79,7 +79,7 @@ public class PaymentService {
         payment.setMethod(paymentMethod);
         payment.setStatus(Payment.PaymentStatus.PENDING);
         payment.setDescription("Thanh toán online qua " + method + " cho đơn " + order.getOrderCode());
-        payment.setTransactionCode(generateTransactionCode());
+        payment.setTransactionCode(generateTransactionCode(payment.getMethod()));
         
         Payment.CustomerInfo info = new Payment.CustomerInfo();
         info.setIpAddress(ipAddress);
@@ -220,10 +220,10 @@ public class PaymentService {
         return PaymentResponseDTO.fromEntity(payment);
     }
 
-    private String generateTransactionCode() {
+    private String generateTransactionCode(Payment.PaymentMethod method) {
         String dateStr = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-        long count = paymentRepository.count();
-        String sequence = String.format("%04d", (count % 10000) + 1);
-        return "PAY-" + dateStr + "-" + sequence;
+        // Tạo random 4 ký tự từ UUID
+        String random = UUID.randomUUID().toString().substring(0, 4).toUpperCase();
+        return "TXN-" + method.name() + "-" + dateStr + "-" + random;
     }
 }

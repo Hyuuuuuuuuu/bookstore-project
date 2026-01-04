@@ -235,6 +235,10 @@ public class OrderService {
             payment.setMethod(paymentMethod);
             payment.setStatus(Payment.PaymentStatus.PENDING);
             payment.setDescription("Payment for order " + order.getOrderCode());
+            // Generate transaction code in format: TXN-<METHOD>-<yyyyMMdd>-<RAND4>
+            String dateStr = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+            String random = UUID.randomUUID().toString().substring(0, 4).toUpperCase();
+            payment.setTransactionCode("TXN-" + paymentMethod.name() + "-" + dateStr + "-" + random);
             paymentRepository.save(payment);
         } catch (Exception e) {
             // Log error nhưng không throw
