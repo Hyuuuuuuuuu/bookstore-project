@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { authAPI } from '../../services/apiService';
@@ -78,19 +78,32 @@ const RegisterPage = () => {
     setLoading(true);
     
     try {
-      const response = await authAPI.sendVerificationCode(formData.email, formData.name);
-      const result = response.data;
+      // Check if email already exists
+      const checkResp = await authAPI.checkEmail(formData.email);
+      const exists = checkResp.data?.data?.exists;
+      if (exists) {
+        setErrors({ email: 'Email này đã được đăng ký' });
+        setLoading(false);
+        return;
+      }
 
-      if (result.success) {
+      const response = await authAPI.sendVerificationCode(formData.email, formData.name);
+      if (response.status === 200 || response.data?.statusCode === 200) {
         setVerificationSent(true);
         setShowVerificationModal(true);
-        setCountdown(60); // 60 seconds countdown
+        setCountdown(60); // 60 seconds countdown for resend
         startCountdown();
       } else {
-        setErrors({ general: result.message || 'Gửi mã xác thực thất bại' });
+        setErrors({ general: response.data?.message || 'Gửi mã xác thực thất bại' });
       }
     } catch (error) {
-      setErrors({ general: 'Có lỗi xảy ra, vui lòng thử lại' });
+      const status = error.response?.status;
+      const message = error.response?.data?.message;
+      if (status === 400 && message && message.toLowerCase().includes('already')) {
+        setErrors({ email: 'Email này đã được đăng ký' });
+      } else {
+        setErrors({ general: message || 'Có lỗi xảy ra, vui lòng thử lại' });
+      }
     } finally {
       setLoading(false);
     }
@@ -115,12 +128,20 @@ const RegisterPage = () => {
     }
 
     setLoading(true);
-    
+    setErrors({});
     try {
-      // Go directly to final registration (which includes verification)
-      await handleFinalRegistration();
+      // First verify the code with backend
+      const verifyResp = await authAPI.verifyEmail(formData.email, verificationCode);
+      if (verifyResp.status === 200 || verifyResp.data?.statusCode === 200) {
+        // verification OK -> proceed to final registration
+        await handleFinalRegistration();
+      } else {
+        setErrors({ verificationCode: verifyResp.data?.message || 'Mã xác thực không hợp lệ' });
+      }
     } catch (error) {
-      setErrors({ general: 'Có lỗi xảy ra, vui lòng thử lại' });
+      // Show backend message if available
+      const msg = error.response?.data?.message || 'Mã không hợp lệ hoặc đã hết hạn. Vui lòng thử lại.';
+      setErrors({ verificationCode: msg });
     } finally {
       setLoading(false);
     }
@@ -134,9 +155,7 @@ const RegisterPage = () => {
         password: formData.password,
         verificationCode: verificationCode
       });
-      const result = response.data;
-
-      if (result.success) {
+      if (response.status === 201 || response.data?.statusCode === 201) {
         // Show success message and redirect to login
         alert('Đăng ký thành công! Vui lòng đăng nhập để tiếp tục.');
         navigate('/login', { 
@@ -145,17 +164,27 @@ const RegisterPage = () => {
           } 
         });
       } else {
-        // Check if it's a verification code error
-        if (result.message && result.message.includes('verification code')) {
-          setErrors({ verificationCode: result.message });
+        const msg = response.data?.message || 'Đăng ký thất bại';
+        if (msg.toLowerCase().includes('verification')) {
+          setErrors({ verificationCode: msg });
         } else {
-          setErrors({ general: result.message || 'Đăng ký thất bại' });
+          setErrors({ general: msg });
         }
       }
     } catch (error) {
-      setErrors({ general: 'Có lỗi xảy ra, vui lòng thử lại' });
+      setErrors({ general: error.response?.data?.message || 'Có lỗi xảy ra, vui lòng thử lại' });
     }
   };
+
+  // Auto-focus first OTP input when modal opens
+  useEffect(() => {
+    if (showVerificationModal) {
+      setTimeout(() => {
+        const first = document.getElementById('code-0');
+        if (first) first.focus();
+      }, 100);
+    }
+  }, [showVerificationModal]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

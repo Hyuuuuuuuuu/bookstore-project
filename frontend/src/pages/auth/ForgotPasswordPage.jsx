@@ -62,21 +62,25 @@ const ForgotPasswordPage = () => {
     
     try {
       const response = await authAPI.forgotPassword(formData.email);
-      const result = response.data;
-
-      if (result.success) {
-        // Lưu thông tin user để hiển thị trong modal
+      // success
+      if (response.status === 200 || response.data?.statusCode === 200) {
         setUserInfo({
           email: formData.email,
-          name: result.data?.user?.name || 'User'
+          name: response.data?.data?.user?.name || 'User'
         });
         setShowOTPModal(true);
         startCountdown();
       } else {
-        setErrors({ general: result.message || 'Email không tồn tại trong hệ thống' });
+        setErrors({ general: response.data?.message || 'Email không tồn tại trong hệ thống' });
       }
     } catch (error) {
-      setErrors({ general: 'Có lỗi xảy ra, vui lòng thử lại' });
+      const status = error.response?.status;
+      const message = error.response?.data?.message;
+      if (status === 404 || /user not found/i.test(message || '')) {
+        setErrors({ email: 'Email này chưa được đăng ký' });
+      } else {
+        setErrors({ general: message || 'Có lỗi xảy ra, vui lòng thử lại' });
+      }
     } finally {
       setLoading(false);
     }
@@ -92,18 +96,20 @@ const ForgotPasswordPage = () => {
     
     try {
       const response = await authAPI.verifyResetOTP(formData.email, formData.otpCode);
-      const result = response.data;
-
-      if (result.success) {
+      if (response.status === 200 || response.data?.statusCode === 200) {
         setShowOTPModal(false);
         setOtpVerified(true);
-        // Giữ lại mã OTP để sử dụng cho reset password
-        // setFormData(prev => ({ ...prev, otpCode: '' }));
       } else {
-        setErrors({ otpCode: result.message || 'Mã OTP không đúng' });
+        setErrors({ otpCode: response.data?.message || 'Mã OTP không đúng' });
       }
     } catch (error) {
-      setErrors({ general: 'Có lỗi xảy ra, vui lòng thử lại' });
+      const status = error.response?.status;
+      const message = error.response?.data?.message;
+      if (status === 400) {
+        setErrors({ otpCode: message || 'Mã OTP không đúng hoặc đã hết hạn' });
+      } else {
+        setErrors({ general: message || 'Có lỗi xảy ra, vui lòng thử lại' });
+      }
     } finally {
       setLoading(false);
     }
@@ -139,20 +145,18 @@ const ForgotPasswordPage = () => {
     
     try {
       const response = await authAPI.resetPassword(formData.email, formData.otpCode, formData.password);
-      const result = response.data;
-
-      if (result.success) {
-        // Redirect to login page with success message
+      if (response.status === 200 || response.data?.statusCode === 200) {
         navigate('/login', { 
           state: { 
             message: 'Đặt lại mật khẩu thành công! Vui lòng đăng nhập với mật khẩu mới.' 
           } 
         });
       } else {
-        setErrors({ general: result.message || 'Đặt lại mật khẩu thất bại' });
+        setErrors({ general: response.data?.message || 'Đặt lại mật khẩu thất bại' });
       }
     } catch (error) {
-      setErrors({ general: 'Có lỗi xảy ra, vui lòng thử lại' });
+      const message = error.response?.data?.message;
+      setErrors({ general: message || 'Có lỗi xảy ra, vui lòng thử lại' });
     } finally {
       setLoading(false);
     }

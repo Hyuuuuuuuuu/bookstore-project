@@ -115,16 +115,29 @@ public class AuthService {
         verification.setIsUsed(true);
         emailVerificationRepository.save(verification);
 
-        // Update user email verification status
-        User user = userRepository.findByEmail(email)
-            .orElseThrow(() -> new AppException("User not found", 404));
-        user.setIsEmailVerified(true);
-        userRepository.save(user);
+        // Update user email verification status if user exists (do not fail if user not yet created)
+        userRepository.findByEmail(email).ifPresent(user -> {
+            user.setIsEmailVerified(true);
+            userRepository.save(user);
+        });
+    }
+
+    @Transactional(readOnly = true)
+    public void validateEmailCode(String email, String code) {
+        LocalDateTime now = LocalDateTime.now();
+        EmailVerification verification = emailVerificationRepository
+            .findByEmailAndCodeAndIsUsedFalseAndExpiresAtAfter(email.toLowerCase(), code, now)
+            .orElseThrow(() -> new AppException("Invalid or expired verification code", 400));
+
+        if (verification.getAttempts() >= 3) {
+            throw new AppException("Too many attempts. Please request a new code", 400);
+        }
+        // validation only: do not mark as used here
     }
 
     @Transactional
     public User registerWithVerification(RegisterRequest request, String verificationCode) {
-        // Verify code first
+        // Verify code first (this will mark code as used and set user verified if exists)
         verifyEmailCode(request.getEmail(), verificationCode);
 
         if (userRepository.existsByEmail(request.getEmail())) {

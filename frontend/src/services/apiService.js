@@ -34,6 +34,14 @@ export const authAPI = {
   sendVerificationCode: (email, name) =>
     axiosClient.post('/auth/send-verification-code', { email, name }),
 
+  // Check if email exists (used by register flow)
+  checkEmail: (email) =>
+    axiosClient.post('/auth/check-email', { email }),
+
+  // Verify email code (used before final registration)
+  verifyEmail: (email, code) =>
+    axiosClient.post('/auth/verify-email', { email, code }),
+
   // Register with verification
   registerWithVerification: (userData) =>
     axiosClient.post('/auth/register-with-verification', userData),

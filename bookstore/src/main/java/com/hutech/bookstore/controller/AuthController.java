@@ -119,15 +119,25 @@ public class AuthController {
         }
     }
 
+    @PostMapping("/check-email")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> checkEmail(@RequestBody Map<String, String> payload) {
+        String email = payload.get("email");
+        boolean exists = userRepository.findByEmailAndIsDeletedFalse(email).isPresent();
+        Map<String, Object> data = new HashMap<>();
+        data.put("exists", exists);
+        return ResponseEntity.ok(new ApiResponse<>(200, data, "Email existence checked"));
+    }
+
     @PostMapping("/verify-email")
     public ResponseEntity<ApiResponse<Map<String, Object>>> verifyEmail(
             @Valid @RequestBody VerifyEmailRequest request) {
-        authService.verifyEmailCode(request.getEmail(), request.getCode());
+        // Validate code but do not consume it here (consumed at final registration)
+        authService.validateEmailCode(request.getEmail(), request.getCode());
 
         Map<String, Object> data = new HashMap<>();
-        data.put("message", "Email verified successfully");
+        data.put("message", "Verification code is valid");
 
-        return ResponseEntity.ok(new ApiResponse<>(200, data, "Email verification successful"));
+        return ResponseEntity.ok(new ApiResponse<>(200, data, "Verification code valid"));
     }
 
     @PostMapping("/register-with-verification")
