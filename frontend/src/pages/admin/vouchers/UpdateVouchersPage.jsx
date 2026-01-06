@@ -218,10 +218,12 @@ const UpdateVouchersPage = () => {
                 name="code"
                 value={formData.code}
                 onChange={handleInputChange}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                readOnly
+                aria-readonly="true"
+                className={`w-full px-3 py-2 border rounded-lg bg-gray-100 cursor-not-allowed ${
                   errors.code ? 'border-red-500' : 'border-gray-300'
                 }`}
-                placeholder="Nhập mã voucher (VD: WELCOME10)"
+                placeholder="Mã voucher không được thay đổi"
                 style={{ textTransform: 'uppercase' }}
               />
               {errors.code && <p className="mt-1 text-sm text-red-500">{errors.code}</p>}

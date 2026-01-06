@@ -164,9 +164,9 @@ export const orderAPI = {
   deleteOrder: (id) =>
     axiosClient.delete(`/orders/${id}`),
 
-  // Get user orders
+  // Get user orders (admin can query by userId via query param)
   getUserOrders: (userId, params = {}) =>
-    axiosClient.get(`/orders/user/${userId}`, { params }),
+    axiosClient.get('/orders', { params: { ...params, userId } }),
 
   // Cancel order
   cancelOrder: (orderId) =>

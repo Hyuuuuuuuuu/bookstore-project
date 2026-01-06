@@ -18,13 +18,60 @@ const CreateVouchersPage = () => {
     isActive: true
   });
   const [errors, setErrors] = useState({});
+  const [autoGenerateCode, setAutoGenerateCode] = useState(true);
+
+  // Mapping from words/phrases in voucher name to prefixes
+  const prefixMapping = [
+    { keywords: ['khuyến mãi', 'sách', 'khuyến mãi sách'], prefix: 'BOOK' },
+    { keywords: ['ưu đãi thành viên', 'thành viên', 'member'], prefix: 'MEMBER' },
+    { keywords: ['người dùng mới', 'new user', 'new'], prefix: 'NEWU' },
+    { keywords: ['sale cuối năm', 'cuối năm', 'year'], prefix: 'YEAR' },
+    { keywords: ['flash sale', 'flash'], prefix: 'FLASH' }
+  ];
+
+  const normalize = (s) => (s || '').toString().toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+
+  const pickPrefixFromName = (name) => {
+    const n = normalize(name);
+    for (const m of prefixMapping) {
+      for (const kw of m.keywords) {
+        if (n.includes(normalize(kw))) return m.prefix;
+      }
+    }
+    // fallback: take first letters of up to 4 words (uppercase)
+    const words = (name || '').trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return 'VCHR';
+    if (words.length === 1) {
+      // take up to 4 chars of single word
+      return words[0].replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 4) || 'VCHR';
+    }
+    const letters = words.slice(0, 4).map(w => w[0] ? w[0].toUpperCase() : '').join('');
+    return (letters || 'VCHR').toUpperCase();
+  };
+
+  const randomCode = (length = 6) => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let out = '';
+    for (let i = 0; i < length; i++) out += chars.charAt(Math.floor(Math.random() * chars.length));
+    return out;
+  };
+
+  const generateVoucherCode = (name) => {
+    const prefix = pickPrefixFromName(name || formData.name);
+    return `${prefix}-${randomCode(6)}`;
+  };
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
+    const newVal = type === 'checkbox' ? checked : value;
+    setFormData(prev => {
+      const next = { ...prev, [name]: newVal };
+      // if admin changes name and autoGenerateCode enabled, update code automatically
+      if (name === 'name' && autoGenerateCode) {
+        next.code = generateVoucherCode(newVal);
+      }
+      return next;
+    });
     
     // Clear error when user starts typing
     if (errors[name]) {
@@ -137,18 +184,47 @@ const CreateVouchersPage = () => {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Mã voucher <span className="text-red-500">*</span>
               </label>
-              <input
-                type="text"
-                name="code"
-                value={formData.code}
-                onChange={handleInputChange}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                  errors.code ? 'border-red-500' : 'border-gray-300'
-                }`}
-                placeholder="Nhập mã voucher (VD: WELCOME10)"
-                style={{ textTransform: 'uppercase' }}
-              />
-              {errors.code && <p className="mt-1 text-sm text-red-500">{errors.code}</p>}
+              <div className="flex items-center space-x-2">
+                <input
+                  type="text"
+                  name="code"
+                  value={formData.code}
+                  onChange={(e) => {
+                    // keep uppercase
+                    const v = e.target.value.toUpperCase();
+                    setFormData(prev => ({ ...prev, code: v }));
+                    if (errors.code) setErrors(prev => ({ ...prev, code: '' }));
+                  }}
+                  className={`flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                    errors.code ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder="Nhập mã voucher (VD: BOOK-7F2K9Q) hoặc bấm Sinh mã"
+                  style={{ textTransform: 'uppercase' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const code = generateVoucherCode(formData.name);
+                    setFormData(prev => ({ ...prev, code }));
+                    if (errors.code) setErrors(prev => ({ ...prev, code: '' }));
+                  }}
+                  className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Sinh mã
+                </button>
+              </div>
+              <div className="mt-2 flex items-center space-x-3">
+                <label className="flex items-center text-sm text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={autoGenerateCode}
+                    onChange={(e) => setAutoGenerateCode(e.target.checked)}
+                    className="mr-2"
+                  />
+                  Tự động tạo mã từ tên
+                </label>
+                {errors.code && <p className="mt-1 text-sm text-red-500">{errors.code}</p>}
+              </div>
             </div>
 
             <div>

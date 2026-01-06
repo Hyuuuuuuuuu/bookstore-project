@@ -289,7 +289,7 @@ const BooksPage = () => {
           </div>
         ) : (
           // Grid View
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
             {books.length > 0 ? (
               books.map((book) => {
                 const statusInfo = getStatusInfo(book);
@@ -314,9 +314,28 @@ const BooksPage = () => {
                         <span className="text-sm font-bold text-gray-900">{formatCurrency(book.price)}</span>
                         <span className={`text-xs px-2 py-0.5 rounded-full ${statusInfo.color}`}>{statusInfo.text}</span>
                       </div>
-                      <div className="flex justify-between text-xs font-medium">
-                        <button onClick={() => navigate(`/admin/books/update/${book._id || book.id}`)} className="text-green-600 hover:text-green-800">Sửa</button>
-                        <button onClick={() => handleBookAction(book._id || book.id, 'delete')} className="text-red-600 hover:text-red-800">Xóa</button>
+                      <div className="flex justify-end items-center space-x-3 text-xs font-medium">
+                        <button
+                          onClick={() => navigate(`/admin/books/${book._id || book.id}`)}
+                          className="text-blue-600 hover:text-blue-800"
+                          title="Xem"
+                        >
+                          Xem
+                        </button>
+                        <button
+                          onClick={() => navigate(`/admin/books/update/${book._id || book.id}`)}
+                          className="text-green-600 hover:text-green-800"
+                          title="Sửa"
+                        >
+                          Sửa
+                        </button>
+                        <button
+                          onClick={() => handleBookAction(book._id || book.id, 'delete')}
+                          className="text-red-600 hover:text-red-800"
+                          title="Xóa"
+                        >
+                          Xóa
+                        </button>
                       </div>
                     </div>
                   </div>

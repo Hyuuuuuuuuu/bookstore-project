@@ -9,10 +9,12 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
+import com.hutech.bookstore.model.Order;
 
 @Repository
 public interface PaymentRepository extends JpaRepository<Payment, Long> {
     Optional<Payment> findByTransactionCode(String transactionCode);
+    Optional<Payment> findByOrder(Order order);
 
     // Tìm kiếm thanh toán (theo status, method, và từ khóa search)
     @Query("SELECT p FROM Payment p WHERE " +

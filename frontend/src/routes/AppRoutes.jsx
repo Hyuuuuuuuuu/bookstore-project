@@ -34,6 +34,7 @@ import ViewCategoryPage from '../pages/admin/categories/ViewCategoryPage';
 import OrdersPage from '../pages/admin/orders/OrdersPage';
 import AdminOrderDetailPage from '../pages/admin/orders/AdminOrderDetailPage';
 import UsersPage from '../pages/admin/users/UsersPage';
+import UserDetailPage from '../pages/admin/users/UserDetailPage';
 import ReportsPage from '../pages/admin/reports/ReportsPage';
 import PaymentsPage from '../pages/admin/payments/PaymentsPage';
 import VouchersPage from '../pages/admin/vouchers/VouchersPage';
@@ -350,6 +351,16 @@ const AppRoutes = () => {
           <AdminRoute>
             <AdminLayout>
               <UsersPage />
+            </AdminLayout>
+          </AdminRoute>
+        }
+      />
+      <Route
+        path="/admin/users/:userId"
+        element={
+          <AdminRoute>
+            <AdminLayout>
+              <UserDetailPage />
             </AdminLayout>
           </AdminRoute>
         }

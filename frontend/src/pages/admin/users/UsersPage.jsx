@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { userAPI } from '../../../services/apiService';
 
 const UsersPage = () => {
@@ -77,9 +78,14 @@ const UsersPage = () => {
     setCurrentPage(pageNumber);
   };
 
+  const navigate = useNavigate();
   const handleUserAction = (userId, action) => {
+    if (action === 'view') {
+      navigate(`/admin/users/${userId}`);
+      return;
+    }
     console.log(`Action ${action} for user ${userId}`);
-    // Implement user actions here
+    // Implement other user actions here
   };
 
   if (loading) {

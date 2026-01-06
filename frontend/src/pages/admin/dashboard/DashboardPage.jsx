@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { adminAPI } from '../../../services/apiService';
+import { adminAPI, orderAPI } from '../../../services/apiService';
 
 const DashboardPage = () => {
   const navigate = useNavigate();
@@ -22,13 +22,15 @@ const DashboardPage = () => {
         const [statsResponse, recentOrdersResponse, topBooksResponse] = await Promise.all([
           adminAPI.getDashboardStats(),
           adminAPI.getRecentOrders(5),
-          adminAPI.getTopBooks(5)
+          // Compute top books from order items (aggregate sales from orders)
+          // We'll fetch a large page of orders and aggregate on the client.
+          orderAPI.getOrders({ page: 1, limit: 1000 })
         ]);
 
         console.log('📊 Dashboard API Responses:', {
           statsResponse: statsResponse.data,
           recentOrdersResponse: recentOrdersResponse.data,
-          topBooksResponse: topBooksResponse.data
+          ordersForTopBooks: topBooksResponse.data
         });
 
         setStats({
@@ -37,7 +39,35 @@ const DashboardPage = () => {
           totalOrders: statsResponse.data.totalOrders || 0,
           totalRevenue: statsResponse.data.totalRevenue || 0,
           recentOrders: recentOrdersResponse.data.orders || recentOrdersResponse.data || [],
-          topBooks: topBooksResponse.data.books || topBooksResponse.data || []
+          // Aggregate topBooks from fetched orders
+          topBooks: (() => {
+            try {
+              const ordersPayload = topBooksResponse?.data?.data || topBooksResponse?.data || [];
+              const ordersList = Array.isArray(ordersPayload) ? ordersPayload : (ordersPayload.orders || []);
+              const bookMap = new Map();
+              ordersList.forEach(order => {
+                // Different backends can place order items under different keys
+                const items = order.items || order.orderItems || order.order_items || order.itemsList || [];
+                if (!Array.isArray(items)) return;
+                items.forEach(item => {
+                  const bookObj = item.book || item.product || {};
+                  const bookId = String(bookObj._id || bookObj.id || item.bookId || item.productId || 'unknown');
+                  const title = bookObj.title || bookObj.name || item.title || 'Unknown';
+                  const qty = Number(item.quantity || item.qty || item.count || 0) || 0;
+                  const price = Number(item.price || item.unitPrice || item.totalPrice || 0) || 0;
+                  const existing = bookMap.get(bookId) || { bookId, title, salesCount: 0, revenue: 0 };
+                  existing.salesCount += qty;
+                  existing.revenue += price * qty;
+                  bookMap.set(bookId, existing);
+                });
+              });
+              const arr = Array.from(bookMap.values()).sort((a, b) => b.salesCount - a.salesCount);
+              return arr.slice(0, 5);
+            } catch (e) {
+              console.error('Failed to compute topBooks from orders:', e);
+              return [];
+            }
+          })()
         });
         setLoading(false);
       } catch (error) {

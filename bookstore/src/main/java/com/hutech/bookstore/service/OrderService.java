@@ -444,7 +444,13 @@ public class OrderService {
                 .orElseThrow(() -> new AppException("Order not found", 404));
 
         try {
-            Order.OrderStatus orderStatus = Order.OrderStatus.valueOf(status.toUpperCase());
+            // Accept both "delivered" and "received" (Vietnamese "đã nhận") as the same final status.
+            Order.OrderStatus orderStatus;
+            if ("RECEIVED".equalsIgnoreCase(status)) {
+                orderStatus = Order.OrderStatus.DELIVERED;
+            } else {
+                orderStatus = Order.OrderStatus.valueOf(status.toUpperCase());
+            }
             Order.OrderStatus current = order.getStatus();
 
             // Logic check transition (tạm bỏ qua check chặt chẽ để admin dễ thao tác)
@@ -458,6 +464,13 @@ public class OrderService {
                     if (order.getPaymentStatus() == Order.PaymentStatus.PENDING) {
                         order.setPaymentStatus(Order.PaymentStatus.COMPLETED);
                         order.setPaidAt(LocalDateTime.now());
+                        // Also update Payment record linked to this order (if exists)
+                        try {
+                            paymentRepository.findByOrder(order).ifPresent(p -> {
+                                p.setStatus(Payment.PaymentStatus.COMPLETED);
+                                paymentRepository.save(p);
+                            });
+                        } catch (Exception ignored) {}
                     }
                 }
                 case CANCELLED -> {
