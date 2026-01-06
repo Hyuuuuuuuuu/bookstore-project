@@ -12,11 +12,21 @@ const BookPage = () => {
   const [filters, setFilters] = useState({
     search: '',
     category: '',
+    minPrice: '',
+    maxPrice: '',
     sortBy: 'createdAt',
     sortOrder: 'desc',
     page: 1,
     limit: 18,
     stock: 'inStock' // Chỉ hiển thị sách có stock > 0
+  });
+
+  // State riêng cho input values (không trigger API ngay)
+  const [inputValues, setInputValues] = useState({
+    search: '',
+    category: '',
+    minPrice: '',
+    maxPrice: ''
   });
   const [pagination, setPagination] = useState({
     currentPage: 1,
@@ -88,30 +98,23 @@ const BookPage = () => {
     fetchData();
   }, [filters]);
 
-  const handleSearch = (e) => {
-    e.preventDefault();
-    setFilters(prev => ({ ...prev, search: e.target.search.value, page: 1 }));
-  };
-
-  const handleCategoryChange = (categoryId) => {
-    setFilters(prev => ({ 
-      ...prev, 
-      category: categoryId || '', 
-      page: 1 
-    }));
-  };
-
   // Clean filters before sending to API
   const getCleanFilters = () => {
     const cleanFilters = { ...filters };
-    
+
     // Remove empty string parameters
     if (cleanFilters.search === '') delete cleanFilters.search;
     if (cleanFilters.category === '') delete cleanFilters.category;
-    
+    if (cleanFilters.minPrice === '') delete cleanFilters.minPrice;
+    if (cleanFilters.maxPrice === '') delete cleanFilters.maxPrice;
+
+    // Convert price strings to numbers if they exist
+    if (cleanFilters.minPrice) cleanFilters.minPrice = parseFloat(cleanFilters.minPrice);
+    if (cleanFilters.maxPrice) cleanFilters.maxPrice = parseFloat(cleanFilters.maxPrice);
+
     // Luôn giữ stock filter để chỉ hiển thị sách có stock > 0
     cleanFilters.stock = 'inStock';
-    
+
     return cleanFilters;
   };
 
@@ -196,58 +199,153 @@ const BookPage = () => {
             {/* Filter Content - Collapsible */}
             {isFilterOpen && (
               <div className="p-6 border-t border-gray-200">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
                   {/* Search */}
-                  <div className="lg:col-span-1">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Search
-                    </label>
-                    <form onSubmit={handleSearch} className="flex">
-                      <input
-                        type="text"
-                        name="search"
-                        placeholder="Search..."
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm"
-                      />
-                      <button
-                        type="submit"
-                        className="bg-orange-500 text-white px-3 py-2 rounded-r-md hover:bg-orange-600 transition-colors"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        </svg>
-                      </button>
-                    </form>
+                  <div>
+                      <h3 className="text-sm font-semibold text-gray-900 mb-3">Tìm kiếm</h3>
+                    <input
+                      type="text"
+                      value={inputValues.search}
+                      onChange={(e) => setInputValues(prev => ({ ...prev, search: e.target.value }))}
+                      placeholder="Nhập tên sách hoặc tác giả..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm"
+                    />
                   </div>
-
-                  {/* Category Filter */}
-                  <div className="lg:col-span-1">
-                    <h3 className="text-sm font-semibold text-gray-900 mb-3">CATEGORY</h3>
-                    <div className="space-y-2 max-h-48 overflow-y-auto">
-                      <label 
-                        onClick={() => handleCategoryChange('')}
-                        className={`flex items-center justify-between cursor-pointer hover:bg-gray-50 p-2 rounded ${
-                          filters.category === '' ? 'bg-orange-50' : ''
-                        }`}
-                      >
-                        <span className="text-sm text-gray-700">Tất cả danh mục</span>
-                        <span className="text-xs text-gray-500">({pagination.totalBooks})</span>
-                      </label>
-                      {categories.map((category) => (
-                        <label 
-                          key={category._id || category.id || `category-${category.name}`} 
-                          onClick={() => handleCategoryChange(category._id || category.id)}
-                          className={`flex items-center justify-between cursor-pointer hover:bg-gray-50 p-2 rounded ${
-                            filters.category === (category._id || category.id) ? 'bg-orange-50' : ''
-                          }`}
-                        >
-                          <span className="text-sm text-gray-700">{category.name}</span>
-                          <span className="text-xs text-gray-500">({category.bookCount || 0})</span>
-                        </label>
-                      ))}
+                  {/* Price Range */}
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900 mb-3">Khoảng giá (VNĐ)</h3>
+                    <div className="flex space-x-2">
+                      <input
+                        type="number"
+                        placeholder="Giá từ"
+                        value={inputValues.minPrice}
+                        onChange={(e) => setInputValues(prev => ({ ...prev, minPrice: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm"
+                        min="0"
+                      />
+                      <input
+                        type="number"
+                        placeholder="Giá đến"
+                        value={inputValues.maxPrice}
+                        onChange={(e) => setInputValues(prev => ({ ...prev, maxPrice: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm"
+                        min="0"
+                      />
                     </div>
                   </div>
+                  {/* Category Filter */}
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900 mb-3">Danh mục</h3>
+
+                    <select
+                      value={inputValues.category}
+                      onChange={(e) => setInputValues(prev => ({ ...prev, category: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm"
+                    >
+                      <option value="">Tất cả danh mục</option>
+                      {categories.map((category) => (
+                        <option key={category._id || category.id} value={category._id || category.id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
+
+                {/* Apply and Clear Buttons */}
+                <div className="mt-6 flex space-x-3">
+                  <button
+                    onClick={() => setFilters(prev => ({
+                      ...prev,
+                      search: inputValues.search,
+                      category: inputValues.category,
+                      minPrice: inputValues.minPrice,
+                      maxPrice: inputValues.maxPrice,
+                      page: 1
+                    }))}
+                    className="bg-orange-500 text-white px-6 py-2 rounded-md hover:bg-orange-600 transition-colors font-medium"
+                  >
+                    Áp dụng bộ lọc
+                  </button>
+                  <button
+                    onClick={() => {
+                      setInputValues({
+                        search: '',
+                        category: '',
+                        minPrice: '',
+                        maxPrice: ''
+                      });
+                      setFilters({
+                        search: '',
+                        category: '',
+                        minPrice: '',
+                        maxPrice: '',
+                        sortBy: 'createdAt',
+                        sortOrder: 'desc',
+                        page: 1,
+                        limit: 18,
+                        stock: 'inStock'
+                      });
+                    }}
+                    className="bg-gray-500 text-white px-6 py-2 rounded-md hover:bg-gray-600 transition-colors font-medium"
+                  >
+                    Xóa tất cả
+                  </button>
+                </div>
+
+                {/* Active Filters Display */}
+                {(filters.search || filters.category || filters.minPrice || filters.maxPrice) && (
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-medium text-gray-700">Bộ lọc đang áp dụng:</span>
+
+                      {filters.search && (
+                        <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-orange-100 text-orange-800">
+                          Tìm kiếm: "{filters.search}"
+                          <button
+                            onClick={() => {
+                              setFilters(prev => ({ ...prev, search: '', page: 1 }));
+                              setInputValues(prev => ({ ...prev, search: '' }));
+                            }}
+                            className="ml-2 text-orange-600 hover:text-orange-800"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      )}
+
+                      {filters.category && (
+                        <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-100 text-blue-800">
+                          Danh mục: {categories.find(cat => String(cat._id || cat.id) === String(filters.category))?.name || 'Unknown'}
+                          <button
+                            onClick={() => {
+                              setFilters(prev => ({ ...prev, category: '', page: 1 }));
+                              setInputValues(prev => ({ ...prev, category: '' }));
+                            }}
+                            className="ml-2 text-blue-600 hover:text-blue-800"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      )}
+
+                      {(filters.minPrice || filters.maxPrice) && (
+                        <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-green-100 text-green-800">
+                          Giá: {filters.minPrice ? `${filters.minPrice.toLocaleString()}đ` : '0đ'} - {filters.maxPrice ? `${filters.maxPrice.toLocaleString()}đ` : '∞'}
+                          <button
+                            onClick={() => {
+                              setFilters(prev => ({ ...prev, minPrice: '', maxPrice: '', page: 1 }));
+                              setInputValues(prev => ({ ...prev, minPrice: '', maxPrice: '' }));
+                            }}
+                            className="ml-2 text-green-600 hover:text-green-800"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -345,19 +443,11 @@ const BookPage = () => {
                 </div>
                 <h3 className="text-2xl font-bold text-gray-900 mb-4">Không tìm thấy sách</h3>
                 <p className="text-gray-600 mb-8">
-                  {filters.search || filters.category 
+                  {(filters.search || filters.category || filters.minPrice || filters.maxPrice)
                     ? 'Thử thay đổi bộ lọc để tìm thấy sách phù hợp'
                     : 'Chưa có sách nào trong hệ thống'
                   }
                 </p>
-                {(filters.search || filters.category) && (
-                  <button
-                    onClick={() => setFilters({ search: '', category: '', sortBy: 'createdAt', sortOrder: 'desc', page: 1, limit: 18, stock: 'inStock' })}
-                    className="inline-flex items-center bg-orange-500 text-white px-6 py-3 rounded-md text-sm font-medium hover:bg-orange-600 transition-colors"
-                  >
-                    Xóa bộ lọc
-                  </button>
-                )}
               </div>
             )}
           </div>

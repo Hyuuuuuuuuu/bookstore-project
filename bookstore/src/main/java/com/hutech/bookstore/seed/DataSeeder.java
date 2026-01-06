@@ -133,61 +133,56 @@ public class DataSeeder implements CommandLineRunner {
         // Trong reset mode, luôn tạo lại tất cả (đã xóa trong clearExistingData)
         // Trong seed mode, chỉ tạo những gì chưa tồn tại
         if (clearExisting) {
-            // Reset mode: Tạo lại tất cả categories (sử dụng setters để bám sát model hiện tại)
+            // Reset mode: Tạo lại tất cả categories từ README.md
             List<Category> categories = new ArrayList<>();
-            Category c1 = new Category();
-            c1.setName("Tiểu thuyết");
-            c1.setDescription("Các tác phẩm văn học mang tính hư cấu, cảm xúc và chiều sâu tâm lý.");
-            c1.setStatus("active");
-            c1.setIsDeleted(false);
-            categories.add(c1);
 
-            Category c2 = new Category();
-            c2.setName("Lịch sử - Văn hóa");
-            c2.setDescription("Sách ghi lại các sự kiện, văn hóa và truyền thống dân tộc.");
-            c2.setStatus("active");
-            c2.setIsDeleted(false);
-            categories.add(c2);
+            // Categories from README.md
+            String[][] categoryData = {
+                {"SÁCH KỸ NĂNG SỐNG – PHÁT TRIỂN BẢN THÂN", "Sách về kỹ năng sống, phát triển bản thân và tư duy"},
+                {"SÁCH KINH TẾ – KINH DOANH", "Sách về kinh tế, kinh doanh và quản lý doanh nghiệp"},
+                {"VĂN HỌC VIỆT NAM", "Các tác phẩm văn học Việt Nam kinh điển"},
+                {"VĂN HỌC NƯỚC NGOÀI (DỊCH)", "Các tác phẩm văn học nước ngoài dịch sang tiếng Việt"},
+                {"SÁCH THIẾU NHI", "Sách dành cho thiếu nhi và thanh thiếu niên"},
+                {"TÂM LÝ – GIÁO DỤC", "Sách về tâm lý học và giáo dục"},
+                {"CÔNG NGHỆ – LẬP TRÌNH – IT", "Sách về công nghệ thông tin, lập trình và IT"}
+            };
 
-            Category c3 = new Category();
-            c3.setName("Khoa học");
-            c3.setDescription("Kiến thức về tự nhiên, vật lý, sinh học, vũ trụ và nghiên cứu khoa học.");
-            c3.setStatus("active");
-            c3.setIsDeleted(false);
-            categories.add(c3);
-
-            Category c4 = new Category();
-            c4.setName("Công nghệ thông tin");
-            c4.setDescription("Sách về lập trình, AI, mạng, và công nghệ số.");
-            c4.setStatus("active");
-            c4.setIsDeleted(false);
-            categories.add(c4);
+            for (String[] data : categoryData) {
+                Category category = new Category();
+                category.setName(data[0]);
+                category.setDescription(data[1]);
+                category.setStatus("active");
+                category.setIsDeleted(false);
+                categories.add(category);
+            }
 
             categoryRepository.saveAll(categories);
             log.info("✅ Created {} categories (reset mode)", categories.size());
         } else {
             // Seed mode: Chỉ tạo category nếu chưa tồn tại
             List<Category> categoriesToCreate = new ArrayList<>();
-            
-            String[] categoryNames = {"Tiểu thuyết", "Lịch sử - Văn hóa", "Khoa học", "Công nghệ thông tin"};
-            String[] categoryDescriptions = {
-                "Các tác phẩm văn học mang tính hư cấu, cảm xúc và chiều sâu tâm lý.",
-                "Sách ghi lại các sự kiện, văn hóa và truyền thống dân tộc.",
-                "Kiến thức về tự nhiên, vật lý, sinh học, vũ trụ và nghiên cứu khoa học.",
-                "Sách về lập trình, AI, mạng, và công nghệ số."
+
+            String[][] categoryData = {
+                {"SÁCH KỸ NĂNG SỐNG – PHÁT TRIỂN BẢN THÂN", "Sách về kỹ năng sống, phát triển bản thân và tư duy"},
+                {"SÁCH KINH TẾ – KINH DOANH", "Sách về kinh tế, kinh doanh và quản lý doanh nghiệp"},
+                {"VĂN HỌC VIỆT NAM", "Các tác phẩm văn học Việt Nam kinh điển"},
+                {"VĂN HỌC NƯỚC NGOÀI (DỊCH)", "Các tác phẩm văn học nước ngoài dịch sang tiếng Việt"},
+                {"SÁCH THIẾU NHI", "Sách dành cho thiếu nhi và thanh thiếu niên"},
+                {"TÂM LÝ – GIÁO DỤC", "Sách về tâm lý học và giáo dục"},
+                {"CÔNG NGHỆ – LẬP TRÌNH – IT", "Sách về công nghệ thông tin, lập trình và IT"}
             };
-            
-            for (int i = 0; i < categoryNames.length; i++) {
-                if (categoryRepository.findByNameAndIsDeletedFalse(categoryNames[i]).isEmpty()) {
+
+            for (String[] data : categoryData) {
+                if (categoryRepository.findByNameAndIsDeletedFalse(data[0]).isEmpty()) {
                     Category c = new Category();
-                    c.setName(categoryNames[i]);
-                    c.setDescription(categoryDescriptions[i]);
+                    c.setName(data[0]);
+                    c.setDescription(data[1]);
                     c.setStatus("active");
                     c.setIsDeleted(false);
                     categoriesToCreate.add(c);
                 }
             }
-            
+
             if (!categoriesToCreate.isEmpty()) {
                 categoryRepository.saveAll(categoriesToCreate);
                 log.info("✅ Created {} new categories", categoriesToCreate.size());
@@ -336,51 +331,138 @@ public class DataSeeder implements CommandLineRunner {
             return;
         }
 
+
+        // Create a map of category name to Category object for easy lookup
+        java.util.Map<String, Category> categoryMap = new java.util.HashMap<>();
+        for (Category category : categories) {
+            categoryMap.put(category.getName(), category);
+        }
+
         List<Book> books = new ArrayList<>();
+
+        // Book data from README.md - organized by category
+        addBooksForCategory(books, categoryMap, "SÁCH KỸ NĂNG SỐNG – PHÁT TRIỂN BẢN THÂN", new String[][][]{
+            {{"Đắc Nhân Tâm", "Dale Carnegie", "NXB Tổng Hợp TP.HCM (First News – Trí Việt)", "2016", "Cuốn sách kinh điển về nghệ thuật giao tiếp, thuyết phục và xây dựng mối quan hệ bền vững trong cuộc sống và công việc."}},
+            {{"Nhà Giả Kim", "Paulo Coelho", "NXB Hội Nhà Văn (Nhã Nam)", "2013", "Hành trình theo đuổi ước mơ của cậu bé chăn cừu, truyền cảm hứng sống và lắng nghe tiếng gọi nội tâm."}},
+            {{"Tuổi Trẻ Đáng Giá Bao Nhiêu", "Rosie Nguyễn", "NXB Hội Nhà Văn", "2016", "Chia sẻ về học tập, trải nghiệm, du lịch và định hướng phát triển bản thân cho người trẻ."}},
+            {{"7 Thói Quen Hiệu Quả", "Stephen R. Covey", "NXB Tổng Hợp TP.HCM (First News)", "2018", "Hệ thống 7 thói quen giúp phát triển bản thân và đạt hiệu quả bền vững trong cuộc sống."}},
+            {{"Dám Nghĩ Lớn", "David J. Schwartz", "NXB Tổng Hợp TP.HCM", "2017", "Khuyến khích tư duy tích cực, tự tin để đạt được thành công vượt mong đợi."}}
+        });
+
+        addBooksForCategory(books, categoryMap, "SÁCH KINH TẾ – KINH DOANH", new String[][][]{
+            {{"Cha Giàu Cha Nghèo", "Robert T. Kiyosaki", "NXB Trẻ", "2015", "So sánh hai tư duy tài chính đối lập, giúp người đọc hiểu rõ cách quản lý tiền bạc."}},
+            {{"Nghĩ Giàu Làm Giàu", "Napoleon Hill", "NXB Lao Động (First News)", "2019", "Phân tích tư duy và nguyên tắc thành công của những người giàu có."}},
+            {{"Quốc Gia Khởi Nghiệp", "Dan Senor, Saul Singer", "NXB Lao Động (Alphabooks)", "2014", "Giải mã thành công kinh tế của Israel thông qua tinh thần đổi mới sáng tạo."}},
+            {{"Từ Tốt Đến Vĩ Đại", "Jim Collins", "NXB Trẻ", "2011", "Nghiên cứu các doanh nghiệp vươn lên mạnh mẽ và bài học chiến lược dài hạn."}},
+            {{"Khởi Nghiệp Tinh Gọn", "Eric Ries", "NXB Lao Động (Alphabooks)", "2017", "Phương pháp xây dựng startup hiệu quả trong môi trường nhiều biến động."}}
+        });
+
+        addBooksForCategory(books, categoryMap, "VĂN HỌC VIỆT NAM", new String[][][]{
+            {{"Dế Mèn Phiêu Lưu Ký", "Tô Hoài", "NXB Kim Đồng", "2015", "Tác phẩm thiếu nhi kinh điển về hành trình trưởng thành và bài học cuộc sống."}},
+            {{"Số Đỏ", "Vũ Trọng Phụng", "NXB Văn Học", "2014", "Tiểu thuyết trào phúng phản ánh xã hội Việt Nam trước Cách mạng."}},
+            {{"Chí Phèo", "Nam Cao", "NXB Văn Học", "2013", "Bi kịch của người nông dân bị xã hội phong kiến vùi dập."}},
+            {{"Tuổi Thơ Dữ Dội", "Phùng Quán", "NXB Kim Đồng", "2017", "Tác phẩm cảm động về thiếu niên tham gia kháng chiến."}},
+            {{"Mắt Biếc", "Nguyễn Nhật Ánh", "NXB Trẻ", "2019", "Chuyện tình học trò trong trẻo, sâu lắng và đầy hoài niệm."}}
+        });
+
+        addBooksForCategory(books, categoryMap, "VĂN HỌC NƯỚC NGOÀI (DỊCH)", new String[][][]{
+            {{"Harry Potter và Hòn Đá Phù Thủy", "J.K. Rowling", "NXB Trẻ", "2016", "Cuốn mở đầu cho loạt truyện phù thủy nổi tiếng toàn cầu."}},
+            {{"Ông Già Và Biển Cả", "Ernest Hemingway", "NXB Văn Học", "2012", "Tác phẩm kinh điển về nghị lực và ý chí con người."}},
+            {{"Không Gia Đình", "Hector Malot", "NXB Kim Đồng", "2018", "Hành trình cảm động của cậu bé Rémi đi tìm mái ấm."}},
+            {{"Cuốn Theo Chiều Gió", "Margaret Mitchell", "NXB Văn Học", "2014", "Tiểu thuyết kinh điển về tình yêu và chiến tranh."}},
+            {{"Hoàng Tử Bé", "Antoine de Saint-Exupéry", "NXB Kim Đồng", "2019", "Câu chuyện triết lý nhẹ nhàng về tình yêu và cuộc sống."}}
+        });
+
+        addBooksForCategory(books, categoryMap, "SÁCH THIẾU NHI", new String[][][]{
+            {{"Totto-chan Bên Cửa Sổ", "Tetsuko Kuroyanagi", "NXB Hội Nhà Văn", "2015", "Câu chuyện giáo dục nhân văn về một ngôi trường đặc biệt."}},
+            {{"Cho Tôi Xin Một Vé Đi Tuổi Thơ", "Nguyễn Nhật Ánh", "NXB Trẻ", "2018", "Góc nhìn hồn nhiên của trẻ em về thế giới người lớn."}},
+            {{"Kính Vạn Hoa", "Nguyễn Nhật Ánh", "NXB Kim Đồng", "2016", "Series truyện thiếu nhi về đời sống học đường."}},
+            {{"Những Tấm Lòng Cao Cả", "Edmondo De Amicis", "NXB Kim Đồng", "2014", "Những câu chuyện cảm động về lòng nhân ái."}},
+            {{"Truyện Cổ Grimm", "Anh em Grimm", "NXB Kim Đồng", "2017", "Tuyển tập truyện cổ tích nổi tiếng thế giới."}}
+        });
+
+        addBooksForCategory(books, categoryMap, "TÂM LÝ – GIÁO DỤC", new String[][][]{
+            {{"Trí Tuệ Xúc Cảm", "Daniel Goleman", "NXB Lao Động", "2018", "Vai trò của EQ trong thành công cá nhân và xã hội."}},
+            {{"Hiểu Về Trái Tim", "Minh Niệm", "NXB Tổng Hợp TP.HCM", "2016", "Sách chữa lành, giúp thấu hiểu cảm xúc và nội tâm."}},
+            {{"Tâm Lý Học Đám Đông", "Gustave Le Bon", "NXB Tri Thức", "2019", "Phân tích hành vi con người khi ở trong tập thể."}},
+            {{"Nuôi Con Không Phải Là Cuộc Chiến", "Hachun Lyonnet", "NXB Lao Động", "2018", "Phương pháp nuôi dạy con tích cực và khoa học."}},
+            {{"Dạy Con Làm Giàu", "Robert T. Kiyosaki", "NXB Trẻ", "2017", "Giáo dục tài chính cho trẻ em và gia đình."}}
+        });
+
+        addBooksForCategory(books, categoryMap, "CÔNG NGHỆ – LẬP TRÌNH – IT", new String[][][]{
+            {{"Clean Code (Bản tiếng Việt)", "Robert C. Martin", "NXB Lao Động (Alphabooks)", "2020", "Nguyên tắc viết mã sạch, dễ đọc và dễ bảo trì."}},
+            {{"Head First Java (Bản tiếng Việt)", "Kathy Sierra, Bert Bates", "NXB Lao Động", "2019", "Học Java trực quan, sinh động cho người mới."}},
+            {{"Python Cơ Bản", "Nguyễn Đức Lương", "NXB Thanh Niên", "2021", "Giáo trình Python từ căn bản đến ứng dụng."}},
+            {{"Lập Trình Không Khó", "Phạm Huy Hoàng", "NXB Thông Tin & Truyền Thông", "2020", "Nhập môn tư duy lập trình cho người mới."}},
+            {{"Tư Duy Lập Trình", "V. Anton Spraul", "NXB Lao Động", "2018", "Rèn luyện tư duy giải quyết vấn đề trong lập trình."}}
+        });
+
+        bookRepository.saveAll(books);
+        log.info("✅ Created {} books", books.size());
+    }
+
+    private void addBooksForCategory(List<Book> books, java.util.Map<String, Category> categoryMap,
+                                   String categoryName, String[][][] bookData) {
+        Category category = categoryMap.get(categoryName);
+        if (category == null) {
+            log.warn("Category '{}' not found, skipping books for this category", categoryName);
+            return;
+        }
+
         String[] publishers = {
             "NXB Kim Đồng", "NXB Trẻ", "NXB Văn Học", "NXB Giáo Dục",
             "NXB Tổng Hợp", "NXB Thế Giới", "NXB Hội Nhà Văn", "NXB Đại Học Quốc Gia"
         };
 
-        // Tạo 8 sách cho mỗi category
-        for (Category category : categories) {
-            for (int j = 1; j <= 8; j++) {
-                Book.BookFormat format = (j % 2 == 0) ? Book.BookFormat.PAPERBACK : Book.BookFormat.HARDCOVER;
-                
-                int year = 2020 + random.nextInt(4);
-                int month = 1 + random.nextInt(8);
+        for (int i = 0; i < bookData.length; i++) {
+            String[] bookInfo = bookData[i][0];
+            String title = bookInfo[0];
+            String author = bookInfo[1];
+            String publisher = bookInfo[2];
+            String pubDateStr = bookInfo[3];
+            String description = bookInfo[4];
+
+            LocalDate publicationDate;
+            try {
+                // Handle year-only format (e.g., "2016")
+                if (pubDateStr.matches("\\d{4}")) {
+                    int year = Integer.parseInt(pubDateStr);
+                    publicationDate = LocalDate.of(year, 1, 1);
+                } else {
+                    publicationDate = LocalDate.parse(pubDateStr);
+                }
+            } catch (Exception e) {
+                // Fallback to random date if parsing fails
+                int year = 1990 + random.nextInt(30);
+                int month = 1 + random.nextInt(12);
                 int day = 1 + random.nextInt(28);
-                LocalDate publicationDate = LocalDate.of(year, month, day);
-
-                Book book = new Book();
-                book.setTitle(category.getName() + " Tập " + j);
-                book.setAuthor("Tác giả " + category.getName() + " " + j);
-                book.setDescription("Cuốn sách " + category.getName().toLowerCase() + 
-                    " tập " + j + " mang đến nội dung hấp dẫn, phù hợp với độc giả yêu thích thể loại này.");
-                book.setPrice(50000.0 + random.nextDouble() * 150000);
-                book.setStock(10 + random.nextInt(90));
-                book.setImageUrl("https://placehold.co/400x600?text=" + 
-                    category.getName().replace(" ", "+") + "+" + j);
-                book.setCategory(category);
-                book.setIsbn("978-" + category.getId() + j + String.format("%06d", random.nextInt(1000000)));
-                book.setPublisher(publishers[random.nextInt(publishers.length)]);
-                book.setPublicationDate(publicationDate);
-                book.setPages(150 + random.nextInt(400));
-                book.setFormat(format);
-                book.setDimensions("20x15x3");
-                book.setWeight(300.0 + random.nextDouble() * 500);
-                book.setViewCount(random.nextInt(1000));
-                book.setIsActive(true);
-                book.setStatus(Book.BookStatus.AVAILABLE);
-                book.setIsDeleted(false);
-                // DigitalFile không cần set vì đây là sách vật lý
-
-                books.add(book);
+                publicationDate = LocalDate.of(year, month, day);
             }
-        }
 
-        bookRepository.saveAll(books);
-        log.info("✅ Created {} books", books.size());
+            Book.BookFormat format = (i % 2 == 0) ? Book.BookFormat.PAPERBACK : Book.BookFormat.HARDCOVER;
+
+            Book book = new Book();
+            book.setTitle(title);
+            book.setAuthor(author);
+            book.setDescription(description);
+            book.setPrice(50000.0 + random.nextDouble() * 150000);
+            book.setStock(10 + random.nextInt(90));
+            book.setImageUrl("https://placehold.co/400x600?text=" + title.replace(" ", "+"));
+            book.setCategory(category);
+            book.setIsbn("978-" + category.getId() + (i+1) + String.format("%06d", random.nextInt(1000000)));
+            book.setPublisher(publisher);
+            book.setPublicationDate(publicationDate);
+            book.setPages(150 + random.nextInt(400));
+            book.setFormat(format);
+            book.setDimensions("20x15x3");
+            book.setWeight(300.0 + random.nextDouble() * 500);
+            book.setViewCount(random.nextInt(1000));
+            book.setIsActive(true);
+            book.setStatus(Book.BookStatus.AVAILABLE);
+            book.setIsDeleted(false);
+
+            books.add(book);
+        }
     }
 
     private void seedAddresses() {
