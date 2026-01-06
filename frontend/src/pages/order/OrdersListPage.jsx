@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 import { orderAPI } from '../../services/apiService';
 import PageLayout from '../../layouts/PageLayout';
 
 const OrdersListPage = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -15,6 +17,11 @@ const OrdersListPage = () => {
     window.scrollTo(0, 0);
     
     const fetchOrders = async () => {
+      if (!user) {
+        // Nếu chưa đăng nhập, chuyển đến trang login
+        navigate('/login');
+        return;
+      }
       try {
         setLoading(true);
         const response = await orderAPI.getOrders({
@@ -23,7 +30,24 @@ const OrdersListPage = () => {
           sortOrder: 'desc'
         });
         console.log('📦 Orders response:', response);
-        setOrders(response?.data?.data?.orders || response?.data?.orders || response?.data || []);
+        const allOrders = response?.data?.data?.orders || response?.data?.orders || response?.data || [];
+
+        // Ensure we only show orders belonging to current logged-in user.
+        const extractUserId = (o) => {
+          if (!o) return null;
+          if (o.user && (o.user._id || o.user.id)) return String(o.user._id || o.user.id);
+          if (o.userId) return String(o.userId);
+          if (o.customer && (o.customer._id || o.customer.id)) return String(o.customer._id || o.customer.id);
+          return null;
+        };
+
+        const currentUserId = String(user._id || user.id);
+        const userOrders = allOrders.filter(o => {
+          const oid = extractUserId(o);
+          return oid ? oid === currentUserId : false;
+        });
+
+        setOrders(userOrders);
         setLoading(false);
       } catch (error) {
         console.error('❌ Error fetching orders:', error);
@@ -43,7 +67,15 @@ const OrdersListPage = () => {
   };
 
   const getStatusColor = (status) => {
-    switch (status) {
+    // Normalize status to string lowercase for robust matching (supports strings or objects)
+    let st = status;
+    if (typeof st === 'object') {
+      st = (st.name || st.status || st.code || st.value || '').toString();
+    } else {
+      st = String(st || '');
+    }
+    st = st.trim().toLowerCase();
+    switch (st) {
       case 'pending': return 'bg-yellow-100 text-yellow-800';
       case 'confirmed': return 'bg-blue-100 text-blue-800';
       case 'shipped': return 'bg-purple-100 text-purple-800';
@@ -54,10 +86,18 @@ const OrdersListPage = () => {
   };
 
   const getStatusText = (status) => {
-    switch (status) {
+    // Normalize status to string lowercase for consistent display
+    let st = status;
+    if (typeof st === 'object') {
+      st = (st.name || st.status || st.code || st.value || '').toString();
+    } else {
+      st = String(st || '');
+    }
+    st = st.trim().toLowerCase();
+    switch (st) {
       case 'pending': return 'Chờ xử lý';
       case 'confirmed': return 'Đã xác nhận';
-      case 'shipped': return 'Đã giao';
+      case 'shipped': return 'Đang giao';
       case 'delivered': return 'Đã nhận';
       case 'cancelled': return 'Đã hủy';
       default: return status;

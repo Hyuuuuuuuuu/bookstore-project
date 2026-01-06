@@ -209,7 +209,8 @@ const ChatPage = () => {
         const response = await chatAPI.getOrCreateConversation()
         console.log('📨 Conversation response:', response)
         const { conversationId, adminUser } = response.data.data
-        setConversationId(conversationId)
+        // Ensure conversationId is numeric (backend uses Long ids). Coerce if possible.
+        setConversationId(conversationId ? Number(conversationId) : null)
         setAdminUser(adminUser)
         
         // Load messages only if conversationId is present.
@@ -294,7 +295,9 @@ const ChatPage = () => {
       if (!raw) return
       const parsed = JSON.parse(raw)
       if (parsed?.conversationId) {
-        setConversationId(parsed.conversationId)
+        // restore numeric conversationId if it's a numeric string
+        const cid = parsed.conversationId
+        setConversationId(cid && !isNaN(Number(cid)) ? Number(cid) : cid)
       }
       if (parsed?.messages) {
         const restored = parsed.messages.map(m => ({ ...m, timestamp: m.timestamp ? new Date(m.timestamp) : new Date() }))
@@ -499,7 +502,15 @@ const ChatPage = () => {
 
                 const fromUser = message.fromUser || message.fromId || (message.sender ? { userId: message.sender } : null);
                 const currentUserId = user?._id || user?.id || user?.userId;
-                const isFromCurrentUser = fromUser && String(fromUser.userId) === String(currentUserId);
+                // Determine if message is from current user:
+                // - explicit fromUser match
+                // - OR server may set message.sender to the user id
+                // - OR optimistic/local temp messages may set message.sender === 'user'
+                const isFromCurrentUser = Boolean(
+                  (fromUser && String(fromUser.userId) === String(currentUserId)) ||
+                  (message.sender && String(message.sender) === String(currentUserId)) ||
+                  message.sender === 'user'
+                );
 
                 // Lightweight debug - show minimal info
                 console.debug('ChatPage: Message', { id: msgId, fromUser: fromUser?.userId, currentUserId, isFromCurrentUser });

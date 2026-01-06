@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Map;
+import java.util.HashMap;
 
 @Component
 public class ChatWebSocketHandler extends TextWebSocketHandler {
@@ -101,29 +102,38 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             System.out.println("Saved message id=" + saved.getId() + " conversation=" + conversation.getId());
 
             // build outgoing message
-            Map<String, Object> out = Map.ofEntries(
-                    Map.entry("type", "CHAT_MESSAGE"),
-                    Map.entry("conversationId", conversation.getId()),
-                    Map.entry("sender", Map.of("id", userId, "role", "USER")),
-                    Map.entry("content", content),
-                    Map.entry("timestamp", msg.getCreatedAt().toString()),
-                    Map.entry("orderCode", orderCode)
-            );
+            Map<String, Object> out = new HashMap<>();
+            out.put("type", "CHAT_MESSAGE");
+            out.put("conversationId", conversation.getId());
+            out.put("sender", Map.of("id", userId, "role", "USER"));
+            out.put("content", content);
+            out.put("timestamp", msg.getCreatedAt().toString());
+            if (orderCode != null) out.put("orderCode", orderCode);
             String outJson = objectMapper.writeValueAsString(out);
 
             // send to user's sessions (echo) and all online supports
-            sessionManager.getSessionsForUser(userId).forEach(s -> {
-                try { s.sendMessage(new TextMessage(outJson)); } catch (Exception ignored) {}
+            var userSessions = sessionManager.getSessionsForUser(userId);
+            System.out.println("Broadcasting user message to userSessions=" + userSessions.size());
+            userSessions.forEach(s -> {
+                try { s.sendMessage(new TextMessage(outJson)); } catch (Exception e) { System.err.println("Error sending to user session: " + e.getMessage()); }
             });
             // broadcast to supports: find online users whose role is ADMIN or STAFF
-            sessionManager.getAllSessions().forEach(s -> {
+            var all = sessionManager.getAllSessions();
+            long supportCount = all.stream().filter(s -> {
+                try {
+                    String srole = (String) s.getAttributes().get("role");
+                    return srole != null && (srole.equalsIgnoreCase("ADMIN") || srole.equalsIgnoreCase("STAFF"));
+                } catch (Exception ex) { return false; }
+            }).count();
+            System.out.println("Broadcasting user message to supportSessions=" + supportCount);
+            all.forEach(s -> {
                 try {
                     Long sid = (Long) s.getAttributes().get("userId");
                     String srole = (String) s.getAttributes().get("role");
                     if (sid != null && srole != null && (srole.equalsIgnoreCase("ADMIN") || srole.equalsIgnoreCase("STAFF"))) {
                         s.sendMessage(new TextMessage(outJson));
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception e) { System.err.println("Error sending to support session: " + e.getMessage()); }
             });
 
         } else if ("STAFF".equalsIgnoreCase(role) || "ADMIN".equalsIgnoreCase(role)) {
@@ -146,28 +156,37 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             Message saved = messageRepository.save(msg);
             System.out.println("Saved support message id=" + saved.getId() + " conversation=" + conversation.getId());
 
-            Map<String, Object> out = Map.ofEntries(
-                    Map.entry("type", "CHAT_MESSAGE"),
-                    Map.entry("conversationId", conversation.getId()),
-                    Map.entry("sender", Map.of("id", userId, "role", "SUPPORT")),
-                    Map.entry("content", content),
-                    Map.entry("timestamp", msg.getCreatedAt().toString()),
-                    Map.entry("orderCode", orderCode)
-            );
+            Map<String, Object> out = new HashMap<>();
+            out.put("type", "CHAT_MESSAGE");
+            out.put("conversationId", conversation.getId());
+            out.put("sender", Map.of("id", userId, "role", "SUPPORT"));
+            out.put("content", content);
+            out.put("timestamp", msg.getCreatedAt().toString());
+            if (orderCode != null) out.put("orderCode", orderCode);
             String outJson = objectMapper.writeValueAsString(out);
 
             // send to user and all supports
-            sessionManager.getSessionsForUser(conversation.getUserId()).forEach(s -> {
-                try { s.sendMessage(new TextMessage(outJson)); } catch (Exception ignored) {}
+            var targetUserSessions = sessionManager.getSessionsForUser(conversation.getUserId());
+            System.out.println("Broadcasting support message to userSessions=" + targetUserSessions.size());
+            targetUserSessions.forEach(s -> {
+                try { s.sendMessage(new TextMessage(outJson)); } catch (Exception e) { System.err.println("Error sending to user session: " + e.getMessage()); }
             });
-            sessionManager.getAllSessions().forEach(s -> {
+            var allSessions = sessionManager.getAllSessions();
+            long supportSessions = allSessions.stream().filter(s -> {
+                try {
+                    String srole = (String) s.getAttributes().get("role");
+                    return srole != null && (srole.equalsIgnoreCase("ADMIN") || srole.equalsIgnoreCase("STAFF"));
+                } catch (Exception ex) { return false; }
+            }).count();
+            System.out.println("Broadcasting support message to supportSessions=" + supportSessions);
+            allSessions.forEach(s -> {
                 try {
                     Long sid = (Long) s.getAttributes().get("userId");
                     String srole = (String) s.getAttributes().get("role");
                     if (sid != null && srole != null && (srole.equalsIgnoreCase("ADMIN") || srole.equalsIgnoreCase("STAFF"))) {
                         s.sendMessage(new TextMessage(outJson));
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception e) { System.err.println("Error sending to support session: " + e.getMessage()); }
             });
         } else {
             // unknown role

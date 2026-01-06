@@ -252,7 +252,8 @@ const ChatsPage = () => {
           return
         }
 
-      const convId = selectedConversation.conversationId || selectedConversation._id
+      const rawConvId = selectedConversation.conversationId || selectedConversation._id
+      const convId = (rawConvId && !isNaN(Number(rawConvId))) ? Number(rawConvId) : rawConvId
       
       // Tránh reload nếu đang load cùng conversation
       if (currentConversationIdRef.current === convId) {
@@ -478,24 +479,42 @@ const ChatsPage = () => {
     e.preventDefault()
     if (!newMessage.trim() || !connected || !selectedConversation) return
     try {
-      const convId = selectedConversation.conversationId || selectedConversation._id
+      const rawConvId = selectedConversation.conversationId || selectedConversation._id
+      const convId = (rawConvId && !isNaN(Number(rawConvId))) ? Number(rawConvId) : rawConvId
       const targetUserId = selectedConversation.user?.userId
       const options = {}
       if (selectedOrderCode) options.orderCode = selectedOrderCode
+      
+      // Optimistic append so admin sees the message immediately
       try {
-        chatService.sendChatMessage(convId, newMessage.trim(), options)
-      } catch (e) {
-        // fallback
-        if (targetUserId) {
-          chatService.sendMessage(targetUserId, newMessage.trim(), options)
-        } else {
-          chatService.sendToAdmin(newMessage.trim(), options)
+        const tempMsg = {
+          messageId: `temp_${Date.now()}`,
+          text: newMessage.trim(),
+          timestamp: new Date(),
+          messageType: 'text',
+          fromUser: { userId: user?._id || user?.id || user?.userId },
+          toUser: { userId: targetUserId || null }
         }
-      }
+        setMessages(prev => [...prev, tempMsg])
+        // attempt to send (primary spec: conversation-based)
+        try {
+          chatService.sendChatMessage(convId, newMessage.trim(), options)
+        } catch (err) {
+          // fallback to user-targeted send
+          if (targetUserId) {
+            chatService.sendMessage(targetUserId, newMessage.trim(), options)
+          } else {
+            chatService.sendToAdmin(newMessage.trim(), options)
+          }
+        }
 
-      setNewMessage('')
+        setNewMessage('')
+      } catch (error) {
+        console.error('Error sending message:', error)
+        alert('Có lỗi xảy ra khi gửi tin nhắn!')
+      }
     } catch (error) {
-      console.error('Error sending message:', error)
+      console.error('Unexpected error in send flow:', error)
       alert('Có lỗi xảy ra khi gửi tin nhắn!')
     }
   }
@@ -708,7 +727,7 @@ const ChatsPage = () => {
                         // Determine sender id/type robustly
                         const senderId = message.senderId || message.fromUser?.userId || message.raw?.fromUserId || message.raw?.senderId || message.sender || message.fromId || null;
                         const senderType = (message.senderRole || message.senderRole || message.raw?.senderType || message.raw?.sender_type || '').toString().toUpperCase();
-                        const currentUserId = user?._1d || user?._id || user?.id || user?.userId;
+                        const currentUserId = user?._id || user?.id || user?.userId;
                         // Message is from current admin/staff only when senderId matches current user's id.
                         const isFromCurrentUser = senderId && String(senderId) === String(currentUserId);
                         // Message is from other support (not current user) when senderType === 'SUPPORT' and senderId !== currentUserId

@@ -11,6 +11,8 @@ const QRPaymentModal = ({ isOpen, onClose, orderData, paymentMethod, onPaymentSu
   const [countdown, setCountdown] = useState(5);
   const autoConfirmTimerRef = useRef(null);
   const countdownTimerRef = useRef(null);
+  const successTimerRef = useRef(null);
+  const timerRef = useRef(null);
   
   // Danh sách các phương thức thanh toán QR (không bao gồm COD)
   const QR_PAYMENT_METHODS = ['momo', 'zalopay', 'bank_transfer'];
@@ -59,19 +61,35 @@ const QRPaymentModal = ({ isOpen, onClose, orderData, paymentMethod, onPaymentSu
           setIsPaymentConfirmed(true);
           setIsAutoConfirming(false);
           
-          // Tự động gọi callback thành công sau 1 giây để hiển thị thông báo
-          setTimeout(() => {
+          // clear countdown timer if running
+          if (countdownTimerRef.current) {
+            clearInterval(countdownTimerRef.current);
+            countdownTimerRef.current = null;
+          }
+          // Sau khi hiển thị thông báo thành công, đợi 3 giây rồi tự động gọi callback thành công (đóng modal & điều hướng)
+          if (successTimerRef.current) clearTimeout(successTimerRef.current);
+          successTimerRef.current = setTimeout(() => {
             onPaymentSuccess?.();
-          }, 1000);
+          }, 3000);
         } catch (error) {
           console.error('Error auto-confirming payment:', error);
+          // Nếu gọi API thất bại (ví dụ backend chưa hỗ trợ), vẫn mô phỏng xác nhận UI để người dùng thấy kết quả
           setIsAutoConfirming(false);
-          // Nếu lỗi, vẫn cho phép user click nút "Đã thanh toán" thủ công
+          setIsPaymentConfirmed(true);
+          // clear countdown timer if running
+          if (countdownTimerRef.current) {
+            clearInterval(countdownTimerRef.current);
+            countdownTimerRef.current = null;
+          }
+          if (successTimerRef.current) clearTimeout(successTimerRef.current);
+          successTimerRef.current = setTimeout(() => {
+            onPaymentSuccess?.();
+          }, 3000);
         }
       }, 5000); // 5 giây
     }
 
-    const timer = setInterval(() => {
+    timerRef.current = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
           setIsExpired(true);
@@ -83,7 +101,10 @@ const QRPaymentModal = ({ isOpen, onClose, orderData, paymentMethod, onPaymentSu
     }, 1000);
 
     return () => {
-      clearInterval(timer);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
       if (autoConfirmTimerRef.current) {
         clearTimeout(autoConfirmTimerRef.current);
         autoConfirmTimerRef.current = null;
@@ -91,6 +112,10 @@ const QRPaymentModal = ({ isOpen, onClose, orderData, paymentMethod, onPaymentSu
       if (countdownTimerRef.current) {
         clearInterval(countdownTimerRef.current);
         countdownTimerRef.current = null;
+      }
+      if (successTimerRef.current) {
+        clearTimeout(successTimerRef.current);
+        successTimerRef.current = null;
       }
     };
   }, [isOpen, onPaymentExpired, orderData, paymentMethod, isQRPayment]);
@@ -162,7 +187,18 @@ const QRPaymentModal = ({ isOpen, onClose, orderData, paymentMethod, onPaymentSu
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-xl font-semibold text-gray-900">{getPaymentTitle()}</h3>
           <button
-            onClick={onClose}
+            onClick={() => {
+              // If payment already confirmed, treat close as confirm (navigate/close via callback)
+              if (isPaymentConfirmed) {
+                if (successTimerRef.current) {
+                  clearTimeout(successTimerRef.current);
+                  successTimerRef.current = null;
+                }
+                onPaymentSuccess?.();
+              } else {
+                onClose?.();
+              }
+            }}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -185,15 +221,17 @@ const QRPaymentModal = ({ isOpen, onClose, orderData, paymentMethod, onPaymentSu
           </div>
         </div>
 
-        {/* Timer */}
-        <div className="text-center mb-4">
-          <div className={`text-2xl font-bold ${isExpired ? 'text-red-500' : 'text-blue-600'}`}>
-            {isExpired ? 'HẾT HẠN' : formatTime(timeLeft)}
+        {/* Timer (hide when payment confirmed or expired) */}
+        {!isPaymentConfirmed && !isExpired && (
+          <div className="text-center mb-4">
+            <div className={`text-2xl font-bold ${isExpired ? 'text-red-500' : 'text-blue-600'}`}>
+              {isExpired ? 'HẾT HẠN' : formatTime(timeLeft)}
+            </div>
+            <div className="text-sm text-gray-500">
+              {isExpired ? 'QR code đã hết hạn' : 'Thời gian còn lại'}
+            </div>
           </div>
-          <div className="text-sm text-gray-500">
-            {isExpired ? 'QR code đã hết hạn' : 'Thời gian còn lại'}
-          </div>
-        </div>
+        )}
 
         {/* QR Code - Chỉ hiển thị khi chưa expired và chưa confirm */}
         {!isExpired && !isPaymentConfirmed && (

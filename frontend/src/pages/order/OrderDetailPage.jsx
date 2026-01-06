@@ -70,7 +70,15 @@ const OrderDetailPage = () => {
   };
 
   const getStatusColor = (status) => {
-    switch (status) {
+    // Normalize status string for robust matching (supports strings or objects)
+    let st = status;
+    if (typeof st === 'object') {
+      st = (st.name || st.status || st.code || st.value || '').toString();
+    } else {
+      st = String(st || '');
+    }
+    st = st.trim().toLowerCase();
+    switch (st) {
       case 'pending': return 'bg-yellow-100 text-yellow-800';
       case 'confirmed': return 'bg-blue-100 text-blue-800';
       case 'shipped': return 'bg-purple-100 text-purple-800';
@@ -82,10 +90,17 @@ const OrderDetailPage = () => {
   };
 
   const getStatusText = (status) => {
-    switch (status) {
+    let st = status;
+    if (typeof st === 'object') {
+      st = (st.name || st.status || st.code || st.value || '').toString();
+    } else {
+      st = String(st || '');
+    }
+    st = st.trim().toLowerCase();
+    switch (st) {
       case 'pending': return 'Chờ xử lý';
       case 'confirmed': return 'Đã xác nhận';
-      case 'shipped': return 'Đã giao';
+      case 'shipped': return 'Đang giao';
       case 'delivered': return 'Đã nhận';
       case 'cancelled': return 'Đã hủy';
       case 'digital_delivered': return 'Đã giao (Sách điện tử)';
@@ -126,7 +141,15 @@ const OrderDetailPage = () => {
   };
 
   const canCancelOrder = () => {
-    return order && ['pending', 'confirmed'].includes(order.status);
+    if (!order || !order.status) return false;
+    let st = order.status;
+    if (typeof st === 'object') {
+      st = (st.name || st.status || st.code || st.value || '').toString();
+    } else {
+      st = String(st);
+    }
+    st = st.trim().toLowerCase();
+    return ['pending', 'confirmed'].includes(st);
   };
 
   const handleContactSupport = () => {
@@ -466,24 +489,6 @@ const OrderDetailPage = () => {
                   </div>
                 </div>
               </div>
-
-              {/* Actions */}
-              {order.status === 'pending' && (
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
-                  <h3 className="text-xl font-semibold text-gray-900 mb-4">Thao tác</h3>
-                  <div className="space-y-3">
-                    <button className="w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition-colors">
-                      Hủy đơn hàng
-                    </button>
-                    <button 
-                      onClick={handleContactSupport}
-                      className="w-full bg-amber-600 text-white py-2 rounded-lg hover:bg-amber-700 transition-colors"
-                    >
-                      Liên hệ hỗ trợ
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </div>
